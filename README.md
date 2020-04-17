@@ -23,14 +23,14 @@
 | Autocreated *Test* databases: Username                       | `INTEGRESQL_TEST_PGUSER`               | PostgreSQL: Username            |          |
 | Autocreated *Test* databases: Password                       | ` INTEGRESQL_TEST_PGPASSWORD`          | PostgreSQL: Password            |          |
 | Autocreated *Test* databases: Minimal test  pool size        | ` INTEGRESQL_TEST_INITIAL_POOL_SIZE`   | `10`                            |          |
-| Autocreated *Test* databases: Maximal test pool size (afterwards we start to reuse databases within the test pool) | ` INTEGRESQL_TEST_MAX_POOL_SIZE`       | ` 500`                          |          |
+| Autocreated *Test* databases: Maximal test pool size (afterwards DBs are reused) | ` INTEGRESQL_TEST_MAX_POOL_SIZE`       | ` 500`                          |          |
 |                                                              |                                        |                                 |          |
 | IntegreSQL **Client**:  BaseURL                              | ` INTEGRESQL_CLIENT_BASE_URL`          | ` "http://integresql:5000/api"` | x        |
 | IntegreSQL **Client**:  APIVersion                           | ` INTEGRESQL_CLIENT_API_VERSION`       | `"v1"`                          |          |
 
 ### Development Quickstart
 
-> Only required if you want to contribute to this repository
+> Only required if you want to contribute to this repository  
 > Requires docker and docker-compose installed locally
 
 ```bash
