@@ -4,7 +4,56 @@
 
 ### Quickstart
 
-...
+#### Via *docker-compose*
+
+```yaml
+
+version: "3.4"
+services:
+
+  # Your main service image
+  service:
+    depends_on:
+      - postgres
+      - integresql
+    environment:
+      PSQL_DBNAME: &PSQL_DBNAME "test" 
+      PSQL_USER: &PSQL_USER "test"
+      PSQL_PASS: &PSQL_PASS "testpass"
+      PSQL_HOST: &PSQL_HOST "postgres"
+
+      [...]
+
+  integresql:
+    image: allaboutapps/integresql:latest
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+    environment: 
+      PGHOST: *PSQL_HOST
+      PGUSER: *PSQL_USER
+      PGPASSWORD: *PSQL_PASS
+
+  postgres:
+    image: postgres:12.2-alpine # should be the same version as used live
+    command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: *PSQL_DBNAME
+      POSTGRES_USER: *PSQL_USER
+      POSTGRES_PASSWORD: *PSQL_PASS
+    volumes:
+      - pgvolume:/var/lib/postgresql/data
+
+volumes:
+  pgvolume: # declare a named volume to persist DB data
+
+
+```
 
 ### Environment Variables
 

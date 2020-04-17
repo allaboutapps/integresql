@@ -44,7 +44,6 @@ services:
       POSTGRES_USER: *PSQL_USER
       POSTGRES_PASSWORD: *PSQL_PASS
     volumes:
-      - .:/app
       - pgvolume:/var/lib/postgresql/data
 
 volumes:
