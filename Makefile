@@ -5,7 +5,7 @@ format:
 	go fmt
 
 gobuild: 
-	go build -o bin/integresql ./server
+	go build -o bin/integresql ./cmd/server
 
 lint:
 	golangci-lint run --fast

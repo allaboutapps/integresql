@@ -6,7 +6,7 @@ services:
       context: .
       target: development
     ports:
-      - "8080:8080"
+      - "5000:5000"
     working_dir: /app
     volumes:
       - .:/app #:delegated
@@ -14,9 +14,7 @@ services:
     depends_on:
       - postgres
     environment: &SERVICE_ENV
-      
-      # INTEGRESQL_CLIENT_BASE_URL: "http://pgserve:5000/api"
-      PGDATABASE: &PSQL_DBNAME "sample" 
+      PGDATABASE: &PSQL_DBNAME "sample"
       PGUSER: &PSQL_USER "dbuser"
       PGPASSWORD: &PSQL_PASS "testpass"
       PGHOST: &PSQL_HOST "postgres"
