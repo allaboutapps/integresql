@@ -1,0 +1,48 @@
+version: "3.4"
+services:
+
+  service:
+    build:
+      context: .
+      target: development
+    ports:
+      - "5000:5000"
+    working_dir: /app
+    volumes:
+      - .:/app #:delegated
+      # - ./.pkg:/go/pkg # enable this to reuse the pkg cache
+    depends_on:
+      - postgres
+    environment: &SERVICE_ENV
+      PGDATABASE: &PSQL_DBNAME "sample"
+      PGUSER: &PSQL_USER "dbuser"
+      PGPASSWORD: &PSQL_PASS "testpass"
+      PGHOST: &PSQL_HOST "postgres"
+      PGPORT: &PSQL_PORT "5432"
+      PGSSLMODE: &PSQL_SSLMODE "disable"
+
+    # Uncomment the next four lines if you will use a ptrace-based debugger like C++, Go, and Rust.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    # Overrides default command so things don't shut down after the process ends.
+    command: /bin/sh -c "while sleep 1000; do :; done"
+
+  postgres:
+    image: postgres:12.2-alpine # should be the same version as used in .drone.yml, Dockerfile and live
+    command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: *PSQL_DBNAME
+      POSTGRES_USER: *PSQL_USER
+      POSTGRES_PASSWORD: *PSQL_PASS
+    volumes:
+      - pgvolume:/var/lib/postgresql/data
+
+volumes:
+  pgvolume: # declare a named volume to persist DB data
