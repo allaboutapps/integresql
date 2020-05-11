@@ -165,7 +165,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 				Password: m.config.ManagerDatabaseConfig.Password,
 				Database: dbName,
 			},
-			ready: false,
+			state: DATABASE_STATE_INIT,
 			c:     make(chan struct{}),
 		},
 		nextTestID:    0,
@@ -181,6 +181,35 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	}
 
 	return template, nil
+}
+
+func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error {
+
+	if !m.Ready() {
+		return ErrManagerNotReady
+	}
+
+	m.templateMutex.Lock()
+	defer m.templateMutex.Unlock()
+
+	template, ok := m.templates[hash]
+	if !ok {
+		dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+		exists, err := m.checkDatabaseExists(ctx, dbName)
+		if err != nil {
+			return err
+		}
+
+		if !exists {
+			return ErrTemplateNotFound
+		}
+
+		m.templates[hash] = nil
+	}
+
+	template.FlagAsDiscarded()
+
+	return nil
 }
 
 func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*TemplateDatabase, error) {
@@ -213,7 +242,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 					Password: m.config.ManagerDatabaseConfig.Password,
 					Database: dbName,
 				},
-				ready: false,
+				state: DATABASE_STATE_INIT,
 				c:     make(chan struct{}),
 			},
 			nextTestID:    0,
@@ -325,7 +354,7 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 					Password: m.config.TestDatabaseOwnerPassword,
 					Database: dbName,
 				},
-				ready: true,
+				state: DATABASE_STATE_READY,
 				c:     make(chan struct{}),
 			},
 			ID:    id,
@@ -467,7 +496,7 @@ func (m *Manager) createNextTestDatabase(ctx context.Context, template *Template
 				Password: m.config.TestDatabaseOwnerPassword,
 				Database: dbName,
 			},
-			ready: true,
+			state: DATABASE_STATE_READY,
 			c:     make(chan struct{}),
 		},
 		ID:    template.nextTestID,

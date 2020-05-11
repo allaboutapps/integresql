@@ -68,6 +68,28 @@ func putFinalizeTemplate(s *api.Server) echo.HandlerFunc {
 	}
 }
 
+func deleteDiscardTemplate(s *api.Server) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		hash := c.Param("hash")
+
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+		defer cancel()
+
+		if err := s.Manager.DiscardTemplateDatabase(ctx, hash); err != nil {
+			switch err {
+			case manager.ErrManagerNotReady:
+				return echo.ErrServiceUnavailable
+			case manager.ErrTemplateNotFound:
+				return echo.NewHTTPError(http.StatusNotFound, "template not found")
+			default:
+				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+			}
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	}
+}
+
 func getTestDatabase(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")

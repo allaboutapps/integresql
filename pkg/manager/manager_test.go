@@ -477,6 +477,69 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 	}
 }
 
+func TestManagerKillTemplateDatabase(t *testing.T) {
+	ctx := context.Background()
+
+	m := testManagerFromEnv()
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	testDBCount := 5
+	var errs = make(chan error, testDBCount)
+
+	var wg sync.WaitGroup
+	wg.Add(testDBCount)
+
+	for i := 0; i < testDBCount; i++ {
+		go getTestDB(&wg, errs, m)
+	}
+
+	if err := m.DiscardTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to kill template database: %v", err)
+	}
+
+	wg.Wait()
+
+	var results = make([]error, 0, testDBCount)
+	for i := 0; i < testDBCount; i++ {
+		results = append(results, <-errs)
+	}
+
+	close(errs)
+
+	success := 0
+	errored := 0
+	for _, err := range results {
+		if err == nil {
+			success++
+		} else {
+			// fmt.Println(err)
+			errored++
+		}
+	}
+
+	if errored != testDBCount {
+		t.Errorf("invalid number of errored retrievals, got %d, want %d", errored, testDBCount)
+	}
+
+	if success != 0 {
+		t.Errorf("invalid number of successful retrievals, got %d, want %d", success, 0)
+	}
+
+}
+
 func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	ctx := context.Background()
 
