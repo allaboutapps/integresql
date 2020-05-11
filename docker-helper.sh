@@ -3,7 +3,7 @@
 if [ "$1" = "--up" ]; then
     docker-compose up --no-start
     docker-compose start # ensure we are started, handle also allowed to be consumed by vscode
-    docker-compose exec service bash
+    docker-compose exec integresql bash
 fi
 
 if [ "$1" = "--halt" ]; then
