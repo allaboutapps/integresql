@@ -165,7 +165,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 				Password: m.config.ManagerDatabaseConfig.Password,
 				Database: dbName,
 			},
-			state: DATABASE_STATE_INIT,
+			state: databaseStateInit,
 			c:     make(chan struct{}),
 		},
 		nextTestID:    0,
@@ -232,36 +232,21 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 
 	template, ok := m.templates[hash]
 
-	// No we don't allow finalizing NEVER initialized database by integresql!
+	// We don't allow finalizing NEVER initialized database by integresql!
 	if !ok {
-		// dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
-		// exists, err := m.checkDatabaseExists(ctx, dbName)
-		// if err != nil {
-		// 	return nil, err
-		// }
-
-		// if !exists {
 		return nil, ErrTemplateNotFound
-		// }
+	}
 
-		// template = &TemplateDatabase{
-		// 	Database: Database{
-		// 		TemplateHash: hash,
-		// 		Config: DatabaseConfig{
-		// 			Host:     m.config.ManagerDatabaseConfig.Host,
-		// 			Port:     m.config.ManagerDatabaseConfig.Port,
-		// 			Username: m.config.ManagerDatabaseConfig.Username,
-		// 			Password: m.config.ManagerDatabaseConfig.Password,
-		// 			Database: dbName,
-		// 		},
-		// 		state: DATABASE_STATE_INIT,
-		// 		c:     make(chan struct{}),
-		// 	},
-		// 	nextTestID:    0,
-		// 	testDatabases: make([]*TestDatabase, 0, m.config.TestDatabaseInitialPoolSize),
-		// }
+	state := template.State()
 
-		// m.templates[hash] = template
+	// early bailout if we are already ready (multiple calls)
+	if state == databaseStateReady {
+		return template, nil
+	}
+
+	// Disallow transition from discarded to ready
+	if state == databaseStateDiscarded {
+		return nil, ErrDatabaseDiscarded
 	}
 
 	template.FlagAsReady()
@@ -366,7 +351,7 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 					Password: m.config.TestDatabaseOwnerPassword,
 					Database: dbName,
 				},
-				state: DATABASE_STATE_READY,
+				state: databaseStateReady,
 				c:     make(chan struct{}),
 			},
 			ID:    id,
@@ -509,7 +494,7 @@ func (m *Manager) createNextTestDatabase(ctx context.Context, template *Template
 				Password: m.config.TestDatabaseOwnerPassword,
 				Database: dbName,
 			},
-			state: DATABASE_STATE_READY,
+			state: databaseStateReady,
 			c:     make(chan struct{}),
 		},
 		ID:    template.nextTestID,

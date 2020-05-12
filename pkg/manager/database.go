@@ -9,9 +9,9 @@ import (
 type databaseState int
 
 const (
-	DATABASE_STATE_INIT      databaseState = iota
-	DATABASE_STATE_DISCARDED databaseState = iota
-	DATABASE_STATE_READY     databaseState = iota
+	databaseStateInit      databaseState = iota
+	databaseStateDiscarded databaseState = iota
+	databaseStateReady     databaseState = iota
 )
 
 var ErrDatabaseDiscarded = errors.New("ErrDatabaseDiscarded")
@@ -37,16 +37,16 @@ func (d *Database) Ready() bool {
 	d.RLock()
 	defer d.RUnlock()
 
-	return d.state == DATABASE_STATE_READY
+	return d.state == databaseStateReady
 }
 
 func (d *Database) WaitUntilReady(ctx context.Context) error {
 
 	state := d.State()
 
-	if state == DATABASE_STATE_READY {
+	if state == databaseStateReady {
 		return nil
-	} else if state == DATABASE_STATE_DISCARDED {
+	} else if state == databaseStateDiscarded {
 		return ErrDatabaseDiscarded
 	}
 
@@ -55,9 +55,9 @@ func (d *Database) WaitUntilReady(ctx context.Context) error {
 		case <-d.c:
 			state := d.State()
 
-			if state == DATABASE_STATE_READY {
+			if state == databaseStateReady {
 				return nil
-			} else if state == DATABASE_STATE_DISCARDED {
+			} else if state == databaseStateDiscarded {
 				return ErrDatabaseDiscarded
 			}
 
@@ -70,14 +70,14 @@ func (d *Database) WaitUntilReady(ctx context.Context) error {
 func (d *Database) FlagAsReady() {
 
 	state := d.State()
-	if state != DATABASE_STATE_INIT {
+	if state != databaseStateInit {
 		return
 	}
 
 	d.Lock()
 	defer d.Unlock()
 
-	d.state = DATABASE_STATE_READY
+	d.state = databaseStateReady
 
 	if d.c != nil {
 		close(d.c)
@@ -87,14 +87,14 @@ func (d *Database) FlagAsReady() {
 func (d *Database) FlagAsDiscarded() {
 
 	state := d.State()
-	if state != DATABASE_STATE_INIT {
+	if state != databaseStateInit {
 		return
 	}
 
 	d.Lock()
 	defer d.Unlock()
 
-	d.state = DATABASE_STATE_DISCARDED
+	d.state = databaseStateDiscarded
 
 	if d.c != nil {
 		close(d.c)

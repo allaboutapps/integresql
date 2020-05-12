@@ -798,6 +798,32 @@ func TestManagerReturnUnknownTemplateDatabase(t *testing.T) {
 	}
 }
 
+func TestManagerMultiFinalize(t *testing.T) {
+	ctx := context.Background()
+
+	m := testManagerFromEnv()
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize a second time template database (bailout already ready): %v", err)
+	}
+}
+
 func TestManagerClearTrackedTestDatabases(t *testing.T) {
 	ctx := context.Background()
 

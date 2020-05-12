@@ -104,6 +104,8 @@ func getTestDatabase(s *api.Server) echo.HandlerFunc {
 				return echo.ErrServiceUnavailable
 			case manager.ErrTemplateNotFound:
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
+			case manager.ErrDatabaseDiscarded:
+				return echo.NewHTTPError(http.StatusGone, "template was just discarded")
 			default:
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
