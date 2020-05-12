@@ -218,7 +218,7 @@ func TestManagerFinalizeTemplateDatabase(t *testing.T) {
 	}
 }
 
-func TestManagerFinalizeUntrackedTemplateDatabase(t *testing.T) {
+func TestManagerFinalizeUntrackedTemplateDatabaseIsNotPossible(t *testing.T) {
 	ctx := context.Background()
 
 	m := testManagerFromEnv()
@@ -249,12 +249,12 @@ func TestManagerFinalizeUntrackedTemplateDatabase(t *testing.T) {
 	}
 
 	template, err := m.FinalizeTemplateDatabase(ctx, hash)
-	if err != nil {
-		t.Fatalf("failed to finalize manually created template database: %v", err)
-	}
+	if err == nil {
+		t.Fatalf("finalize manually created template database did work: %v", err)
 
-	if !template.Ready() {
-		t.Error("template database is flagged as not ready")
+		if template.Ready() {
+			t.Error("template database is flagged ready even though it was never initialize by us")
+		}
 	}
 }
 
@@ -477,7 +477,7 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 	}
 }
 
-func TestManagerKillTemplateDatabase(t *testing.T) {
+func TestManagerDiscardTemplateDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	m := testManagerFromEnv()
@@ -536,6 +536,81 @@ func TestManagerKillTemplateDatabase(t *testing.T) {
 
 	if success != 0 {
 		t.Errorf("invalid number of successful retrievals, got %d, want %d", success, 0)
+	}
+}
+
+func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
+	ctx := context.Background()
+
+	m := testManagerFromEnv()
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	testDBCount := 5
+	var errs = make(chan error, testDBCount)
+
+	var wg sync.WaitGroup
+	wg.Add(testDBCount)
+
+	for i := 0; i < testDBCount; i++ {
+		go getTestDB(&wg, errs, m)
+	}
+
+	if err := m.DiscardTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to kill template database: %v", err)
+	}
+
+	wg.Wait()
+
+	var results = make([]error, 0, testDBCount)
+	for i := 0; i < testDBCount; i++ {
+		results = append(results, <-errs)
+	}
+
+	close(errs)
+
+	success := 0
+	errored := 0
+	for _, err := range results {
+		if err == nil {
+			success++
+		} else {
+			// fmt.Println(err)
+			errored++
+		}
+	}
+
+	if errored != testDBCount {
+		t.Errorf("invalid number of errored retrievals, got %d, want %d", errored, testDBCount)
+	}
+
+	if success != 0 {
+		t.Errorf("invalid number of successful retrievals, got %d, want %d", success, 0)
+	}
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err == nil {
+		t.Fatalf("finalize template should not work: %v", err)
+	}
+
+	_, err = m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("reinitialize after discard template database should work: %v", err)
+	}
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("finalize after discard template + reinitialize template database should work: %v", err)
 	}
 
 }

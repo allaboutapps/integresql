@@ -175,7 +175,8 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	m.templates[hash] = template
 
 	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
-		m.templates[hash] = nil
+		delete(m.templates, hash)
+		// m.templates[hash] = nil
 
 		return nil, err
 	}
@@ -193,6 +194,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	defer m.templateMutex.Unlock()
 
 	template, ok := m.templates[hash]
+
 	if !ok {
 		dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
 		exists, err := m.checkDatabaseExists(ctx, dbName)
@@ -203,11 +205,19 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		if !exists {
 			return ErrTemplateNotFound
 		}
-
-		m.templates[hash] = nil
 	}
 
+	// discard any still waiting dbs.
 	template.FlagAsDiscarded()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := template.WaitUntilReady(ctx); err != nil {
+		cancel()
+	}
+	cancel()
+
+	// m.templates[hash] = nil
+	delete(m.templates, hash)
 
 	return nil
 }
@@ -221,35 +231,37 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 	defer m.templateMutex.Unlock()
 
 	template, ok := m.templates[hash]
+
+	// No we don't allow finalizing NEVER initialized database by integresql!
 	if !ok {
-		dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
-		exists, err := m.checkDatabaseExists(ctx, dbName)
-		if err != nil {
-			return nil, err
-		}
+		// dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+		// exists, err := m.checkDatabaseExists(ctx, dbName)
+		// if err != nil {
+		// 	return nil, err
+		// }
 
-		if !exists {
-			return nil, ErrTemplateNotFound
-		}
+		// if !exists {
+		return nil, ErrTemplateNotFound
+		// }
 
-		template = &TemplateDatabase{
-			Database: Database{
-				TemplateHash: hash,
-				Config: DatabaseConfig{
-					Host:     m.config.ManagerDatabaseConfig.Host,
-					Port:     m.config.ManagerDatabaseConfig.Port,
-					Username: m.config.ManagerDatabaseConfig.Username,
-					Password: m.config.ManagerDatabaseConfig.Password,
-					Database: dbName,
-				},
-				state: DATABASE_STATE_INIT,
-				c:     make(chan struct{}),
-			},
-			nextTestID:    0,
-			testDatabases: make([]*TestDatabase, 0, m.config.TestDatabaseInitialPoolSize),
-		}
+		// template = &TemplateDatabase{
+		// 	Database: Database{
+		// 		TemplateHash: hash,
+		// 		Config: DatabaseConfig{
+		// 			Host:     m.config.ManagerDatabaseConfig.Host,
+		// 			Port:     m.config.ManagerDatabaseConfig.Port,
+		// 			Username: m.config.ManagerDatabaseConfig.Username,
+		// 			Password: m.config.ManagerDatabaseConfig.Password,
+		// 			Database: dbName,
+		// 		},
+		// 		state: DATABASE_STATE_INIT,
+		// 		c:     make(chan struct{}),
+		// 	},
+		// 	nextTestID:    0,
+		// 	testDatabases: make([]*TestDatabase, 0, m.config.TestDatabaseInitialPoolSize),
+		// }
 
-		m.templates[hash] = template
+		// m.templates[hash] = template
 	}
 
 	template.FlagAsReady()
@@ -423,7 +435,8 @@ func (m *Manager) ResetAllTracking() error {
 		}
 		m.templates[hash].Unlock()
 
-		m.templates[hash] = nil
+		delete(m.templates, hash)
+		// m.templates[hash] = nil
 	}
 
 	m.templates = map[string]*TemplateDatabase{}
