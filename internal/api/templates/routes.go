@@ -7,6 +7,7 @@ func InitRoutes(s *api.Server) {
 
 	g.POST("", postInitializeTemplate(s))
 	g.PUT("/:hash", putFinalizeTemplate(s))
+	g.DELETE("/:hash", deleteDiscardTemplate(s))
 	g.GET("/:hash/tests", getTestDatabase(s))
 	g.DELETE("/:hash/tests/:id", deleteReturnTestDatabase(s))
 }
