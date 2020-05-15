@@ -10,9 +10,13 @@ if [ "$1" = "--halt" ]; then
     docker-compose stop
 fi
 
+if [ "$1" = "--rebuild" ]; then
+    docker-compose up -d --force-recreate --no-deps --build integresql
+fi
+
 if [ "$1" = "--destroy" ]; then
     docker-compose down --rmi local -v --remove-orphans
 fi
 
-[ -n "$1" -a \( "$1" = "--up" -o "$1" = "--halt" -o "$1" = "--destroy" \) ] \
-    || { echo "usage: $0 --up | --halt | --destroy" >&2; exit 1; }
+[ -n "$1" -a \( "$1" = "--up" -o "$1" = "--halt" -o "$1" = "--rebuild" -o "$1" = "--destroy" \) ] \
+    || { echo "usage: $0 --up | --halt | --rebuild | --destroy" >&2; exit 1; }

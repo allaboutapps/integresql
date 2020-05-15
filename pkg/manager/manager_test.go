@@ -248,13 +248,9 @@ func TestManagerFinalizeUntrackedTemplateDatabaseIsNotPossible(t *testing.T) {
 		t.Fatalf("failed to manually create template database %q: %v", dbName, err)
 	}
 
-	template, err := m.FinalizeTemplateDatabase(ctx, hash)
+	_, err = m.FinalizeTemplateDatabase(ctx, hash)
 	if err == nil {
 		t.Fatalf("finalize manually created template database did work: %v", err)
-
-		if template.Ready() {
-			t.Error("template database is flagged ready even though it was never initialize by us")
-		}
 	}
 }
 
