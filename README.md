@@ -2,13 +2,9 @@
 
 `IntegreSQL` manages isolated PostgreSQL databases for your integration tests.
 
-## Overview [![](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/allaboutapps/integresql?tab=doc) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
-
-## Table of Contents
+[![](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/allaboutapps/integresql?tab=doc) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
 
 - [IntegreSQL](#integresql)
-  - [Overview ![](https://pkg.go.dev/github.com/allaboutapps/integresql?tab=doc) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)](#overview-img-srchttpsimgshieldsiobadgegodev-reference-007d9clogogologocolorwhite-alt-img-srchttpsgoreportcardcombadgegithubcomallaboutappsintegresql-alt-img-srchttpsgithubcomallaboutappsintegresqlworkflowsbuildbadgesvgbranchmaster-alt)
-  - [Table of Contents](#table-of-contents)
   - [Background](#background)
     - [Approach 0: Leaking database mutations for subsequent tests](#approach-0-leaking-database-mutations-for-subsequent-tests)
     - [Approach 1: Isolating by resetting](#approach-1-isolating-by-resetting)
