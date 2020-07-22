@@ -2,6 +2,8 @@
 
 `IntegreSQL` manages isolated PostgreSQL databases for your integration tests.
 
+Do your engineers a favour by allowing them to write fast executing, parallel and deterministic integration tests utilizing **real** PostgreSQL test databases. Resemble your live environment in tests as close as possible.   
+
 [![](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/allaboutapps/integresql?tab=doc) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
 
 - [IntegreSQL](#integresql)
@@ -14,6 +16,9 @@
     - [Approach 3b: Isolation by cached templates](#approach-3b-isolation-by-cached-templates)
     - [Approach 3c: Isolation by cached templates and pool](#approach-3c-isolation-by-cached-templates-and-pool)
     - [Final approach: IntegreSQL](#final-approach-integresql)
+      - [Integrate by client lib](#integrate-by-client-lib)
+      - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
+      - [Demo](#demo)
   - [Install](#install)
     - [Install using Docker (preferred)](#install-using-docker-preferred)
     - [Install locally](#install-locally)
@@ -151,15 +156,15 @@ This is actually the (simplified) strategy, that we have used in [allaboutapps-b
 
 ### Final approach: IntegreSQL
 
-We realized that having the above pool logic directly within the test runner is actually counterproductive and is further limiting usage from properly utilizing parallel testing.
+We realized that having the above pool logic directly within the test runner is actually counterproductive and is further limiting usage from properly utilizing parallel testing (+performance).
 
 As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize our testing strategy with PostgreSQL.
 
-IntegreSQL is a RESTful JSON api distributed as a Docker image or go cli. It manages multiple PostgreSQL templates and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+IntegreSQL is a RESTful JSON API distributed as Docker image or go cli. It's language agnostic and manages multiple PostgreSQL templates and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
 
-Our flow actually changed to this:
+Our flow now finally changed to this:
 
-* Start IntegreSQL and leave it running in the background (our db template/test pool is always warm)
+* **Start IntegreSQL** and leave it running **in the background** (your PostgreSQL template and test database pool will always be warm)
 * ...
 * 1..n test runners start in parallel
 * Once per test runner process
@@ -175,7 +180,6 @@ Our flow actually changed to this:
       * Some other process has already recreated a PostgreSQL template database for this `hash` (or is currently doing it), you can just consider the template ready at this point.
     * `StatusServiceUnavailable: 503`
       * Typically happens if IntegreSQL cannot communicate with PostgreSQL, fail the test runner process
-* Run each (parallel) test:
 * **Before each** test `GetTestDatabase: GET /templates/{hash}/tests`
   * Blocks until the template database is finalized (via `FinalizeTemplate`)
   * `StatusOK: 200`
@@ -186,7 +190,7 @@ Our flow actually changed to this:
     * There was an error during test setup with our fixtures, someone called `DiscardTemplate`, thus this template cannot be used.
   * `StatusServiceUnavailable: 503`
     * Well, typically a PostgreSQL connectivity problem
-* Utilizing the isolated PostgreSQL test database received from IntegreSQL for each test:
+* Utilizing the isolated PostgreSQL test database received from IntegreSQL for each (parallel) test:
   * **Run your test code**
 * **After each** test optional: `ReturnTestDatabase: DELETE /templates/{hash}/tests/{test-database-id}`
   * Marks the test database that it can be wiped early on pool limit overflow (or reused if `true` is submitted)
@@ -194,16 +198,20 @@ Our flow actually changed to this:
 * ...
 * Subsequent 1..n test runners start/end in parallel and reuse the above logic
 
-This might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for for specific language, we currently have those:
+#### Integrate by client lib
+
+The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
 
 * Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
 * ... *Add your link here and make a PR*
 
+#### Integrate by RESTful JSON calls
+
 A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
 
-If you want to take a look on how we with integrate IntegreSQL - ;) - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [testing setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/testing.go). 
+#### Demo
 
-Do your engineers a pleasure and allow them to write fast executing and deterministic tests that resemble your live environment (with PostgreSQL) as close as possible.  
+If you want to take a look on how we with integrate IntegreSQL - ;) - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [testing setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/testing.go). 
 
 ## Install
 
