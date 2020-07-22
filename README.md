@@ -6,27 +6,30 @@
 
 ## Table of Contents
 
-- [Background](#background)
-    - [Approach 0: Leaking database mutations for subsequent tests](#approach-0:-leaking-database-mutations-for-subsequent-tests)
-    - [Approach 1: Isolating by resetting](#approach-1:-isolating-by-resetting)
-    - [Approach 2a: Isolation by transactions](#approach-2a:-isolation-by-transactions)
-    - [Approach 2b: Isolation by mocking](#approach-2b:-isolation-by-mocking)
-    - [Approach 3a: Isolation by templates](#approach-3a:-isolation-by-templates)
-    - [Approach 3b: Isolation by cached templates](#approach-3b:-isolation-by-cached-templates)
-    - [Approach 3c: Isolation by cached templates and pool](#approach-3c:-isolation-by-cached-templates-and-pool)
-    - [Final approach: IntegreSQL](#final-approach:-integresql)
-- [Install](#install)
+- [IntegreSQL](#integresql)
+  - [Overview ![](https://pkg.go.dev/github.com/allaboutapps/integresql?tab=doc) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)](#overview-img-srchttpsimgshieldsiobadgegodev-reference-007d9clogogologocolorwhite-alt-img-srchttpsgoreportcardcombadgegithubcomallaboutappsintegresql-alt-img-srchttpsgithubcomallaboutappsintegresqlworkflowsbuildbadgesvgbranchmaster-alt)
+  - [Table of Contents](#table-of-contents)
+  - [Background](#background)
+    - [Approach 0: Leaking database mutations for subsequent tests](#approach-0-leaking-database-mutations-for-subsequent-tests)
+    - [Approach 1: Isolating by resetting](#approach-1-isolating-by-resetting)
+    - [Approach 2a: Isolation by transactions](#approach-2a-isolation-by-transactions)
+    - [Approach 2b: Isolation by mocking](#approach-2b-isolation-by-mocking)
+    - [Approach 3a: Isolation by templates](#approach-3a-isolation-by-templates)
+    - [Approach 3b: Isolation by cached templates](#approach-3b-isolation-by-cached-templates)
+    - [Approach 3c: Isolation by cached templates and pool](#approach-3c-isolation-by-cached-templates-and-pool)
+    - [Final approach: IntegreSQL](#final-approach-integresql)
+  - [Install](#install)
     - [Install using Docker (preferred)](#install-using-docker-preferred)
     - [Install locally](#install-locally)
-- [Configuration](#configuration)
-- [Usage](#usage)
+  - [Configuration](#configuration)
+  - [Usage](#usage)
     - [Run using Docker (preferred)](#run-using-docker-preferred)
     - [Run locally](#run-locally)
-- [Contributing](#contributing)
+  - [Contributing](#contributing)
     - [Development setup](#development-setup)
     - [Development quickstart](#development-quickstart)
-- [Maintainers](#maintainers)
-- [License](#license)
+  - [Maintainers](#maintainers)
+  - [License](#license)
 
 ## Background
 
@@ -218,7 +221,7 @@ go get github.com/allaboutapps/integresql/cmd/server
 `IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
 
 | Description                                                       | Environment variable                  | Default              | Required |
-|-------------------------------------------------------------------|---------------------------------------|----------------------|----------|
+| ----------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
 | IntegreSQL: listen address (defaults to all if empty)             | `INTEGRESQL_ADDRESS`                  | `""`                 |          |
 | IntegreSQL: port                                                  | `INTEGRESQL_PORT`                     | `5000`               |          |
 | PostgreSQL: host                                                  | `INTEGRESQL_PGHOST`, `PGHOST`         | `"127.0.0.1"`        | Yes      |
