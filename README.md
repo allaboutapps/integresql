@@ -7,6 +7,14 @@
 ## Table of Contents
 
 - [Background](#background)
+    - [Approach 0: Leaking database mutations for subsequent tests](#approach-0:-leaking-database-mutations-for-subsequent-tests)
+    - [Approach 1: Isolating by resetting](#approach-1:-isolating-by-resetting)
+    - [Approach 2a: Isolation by transactions](#approach-2a:-isolation-by-transactions)
+    - [Approach 2b: Isolation by mocking](#approach-2b:-isolation-by-mocking)
+    - [Approach 3a: Isolation by templates](#approach-3a:-isolation-by-templates)
+    - [Approach 3b: Isolation by cached templates](#approach-3b:-isolation-by-cached-templates)
+    - [Approach 3c: Isolation by cached templates and pool](#approach-3c:-isolation-by-cached-templates-and-pool)
+    - [Final approach: IntegreSQL](#final-approach:-integresql)
 - [Install](#install)
     - [Install using Docker (preferred)](#install-using-docker-preferred)
     - [Install locally](#install-locally)
@@ -21,6 +29,171 @@
 - [License](#license)
 
 ## Background
+
+We came a long way to realize that something just did not feel right with our PostgreSQL integration testing strategies.
+This is a loose summary of how this project came to life.
+
+### Approach 0: Leaking database mutations for subsequent tests
+
+Testing our customer backends actually started quite simple:
+
+* Test runner starts
+* Recreate a PostgreSQL test database
+* Apply all migrations
+* Seed all fixtures
+* Run each test in the same PostgreSQL test database
+* Test runner ends
+
+It's quite easy to spot the problem with this approach. Data may be mutated by any single test and is visible from all subsequent tests. It becomes cumbersome to make changes in your test code if you can't rely on a clean state in each and every test.
+
+### Approach 1: Isolating by resetting
+
+Let's try to fix that like this:
+
+* Test runner starts
+* Recreate a PostgreSQL test database
+* Before each test: 
+  * Truncate
+  * Apply all migrations
+  * Seed all fixtures
+* Run each test in the same PostgreSQL test database
+* Test runner ends
+
+Well, it's now isolated - but testing time has increased by a rather high factor and is totally dependent on your truncate/migrate/seed operations.
+
+### Approach 2a: Isolation by transactions
+
+What about using database transactions?
+
+* Test runner starts
+* Recreate a PostgreSQL test database
+* Apply all migrations
+* Seed all fixtures
+* Before each test: 
+  * Start a new database transaction
+* Run each test in the same PostgreSQL test database
+* After each test:
+  * Rollback the database transaction
+* Test runner ends
+
+After spending various time to rewrite all code to actually use the injected database transaction in each code, you realize that nested transactions are not supported and can only be poorly emulated using save points. All database transaction specific business code, especially their potential error state, is not properly testable this way. You therefore ditch this approach.
+
+### Approach 2b: Isolation by mocking
+
+What about using database mocks?
+
+* Test runner starts
+* Run each test with an in-memory mock database
+* Test runner ends
+
+I'm generally not a fan of emulating database behavior through a mocking layer while testing/implementing. Even minor version changes of PostgreSQL plus it's extensions (e.g. PostGIS) may introduce slight differences, e.g. how indices are used, function deprecations, query planner, etc. . It might not even be an erroneous result, just performance regressions or slight sorting differences in the returned query result.
+
+We try to approximate local/test and live as close as possible, therefore using the same database, with the same extensions in their exact same version is a hard requirement for us while implementing/testing locally.
+
+### Approach 3a: Isolation by templates
+
+We discovered that using PostgreSQL templates and creating the actual new test database from them is quite fast, let's to this:
+
+* Test runner starts
+* Recreate a PostgreSQL template database
+* Apply all migrations
+* Seed all fixtures
+* Before each test: 
+  * Create a new PostgreSQL test database from our already migrated/seeded template database
+* Run each test utilizing a new PostgreSQL test database
+* Test runner ends
+
+Well, we are up in speed again, but we still can do better, how about...
+
+### Approach 3b: Isolation by cached templates
+
+* Test runner starts
+* Check migrations/fixtures have changed (hash over all related files)
+  * Yes
+    * Recreate a PostgreSQL template database
+    * Apply all migrations
+    * Seed all fixtures
+  * No, nothing has changed
+    * Simply reuse the previous PostgreSQL template database
+* Before each test: 
+  * Create a new PostgreSQL test database from our already migrated/seeded template database
+* Run each test utilizing a new PostgreSQL test database
+* Test runner ends
+
+This gives a significant speed bump as we no longer need to recreate our template database if no files related to the database structure or fixtures have changed. However, we still need to create a new PostgreSQL test database from a template before running any test. Even though this is quite fast, could we do better?
+
+### Approach 3c: Isolation by cached templates and pool
+
+* Test runner starts
+* Check migrations/fixtures have changed (hash over all related files)
+  * Yes
+    * Recreate a PostgreSQL template database
+    * Apply all migrations
+    * Seed all fixtures
+  * No, nothing has changed
+    * Simply reuse the previous PostgreSQL template database
+* Create a pool of n PostgreSQL test databases from our already migrated/seeded template database
+* Before each test: 
+  * Select the first database that is ready from the test pool
+* Run each test utilizing a new PostgreSQL test database
+* After each test: 
+  * If there are still tests lefts to run add some additional PostgreSQL test databases from our already migrated/seeded template database
+* Test runner ends
+
+Finally, by keeping a warm pool of test database we arrive at the speed of Approach 0, while having the isolation gurantees of all subsequent approaches.
+This is actually the (simplified) strategy, that we have used in [allaboutapps-backend-stack](https://github.com/allaboutapps/aaa-backend-stack) for many years.
+
+### Final approach: IntegreSQL
+
+We realized that having the above pool logic directly within the test runner is actually counterproductive and is further limiting usage from properly utilizing parallel testing.
+
+As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize our testing strategy with PostgreSQL.
+
+IntegreSQL is a RESTful JSON api distributed as a Docker image or go cli. It manages multiple PostgreSQL templates and their separate pool of test database for your tests. It keeps the pool of test database warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+
+Our flow actually changed to this:
+
+* Start IntegreSQL and leave it running in the background (our db template/test pool is always warm)
+* ...
+* 1..n test runners start in parallel
+* Once per test runner process
+  * Get migrations/fixtures files `hash` over all related database files
+  * `InitializeTemplate: POST /templates`: attempt to create a new PostgreSQL template database identifying though the above hash `payload: {"hash": "string"}`
+    * `StatusOK: 200` 
+      * Truncate
+      * Apply all migrations
+      * Seed all fixtures
+      * `FinalizeTemplate: PUT /templates/{hash}` 
+      * If you encountered any template setup errors call `DiscardTemplate: DELETE /templates/{hash}`
+    * `StatusLocked: 423`
+      * Some other process has already recreated a PostgreSQL template database for this `hash` (or is currently doing it), you can just consider the template ready at this point.
+    * `StatusServiceUnavailable: 503`
+      * Typically happens if IntegreSQL cannot communicate with PostgreSQL, fail the test runner process
+* Run the parallel test
+  * `GetTestDatabase: GET /templates/{hash}/tests`
+    * Blocks until the template database is finalized (via `FinalizeTemplate`)
+    * `StatusOK: 200`
+      * You get a fully isolated PostgreSQL database from our already migrated/seeded template database to use within your test
+    * `StatusNotFound: 404`
+      * Well, seems like someone forgot to call `InitializeTemplate` or it errored out.
+    * `StatusGone: 410`
+      * There was an error during test setup with our fixtures, someone called `DiscardTemplate`, thus this template cannot be used.
+    * `StatusServiceUnavailable: 503`
+      * Well, typically a PostgreSQL connectivity problem
+  * *Your test code*
+  * Optional: `ReturnTestDatabase: DELETE /templates/{hash}/tests/{test-database-id}`
+* 1..n test runners end
+
+This might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for for specific language, we currently have those:
+
+* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go)
+* ...
+
+A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
+
+If you want to take a look on how we with integrate IntegreSQL - ;) - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [testing setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/testing.go). 
+
+Do your engineers a pleasure and allow them to write fast executing and deterministic tests that resemble your live environment (with PostgreSQL) as close as possible.  
 
 ## Install
 
