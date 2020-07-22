@@ -257,35 +257,49 @@ services:
       - postgres
       - integresql
     environment:
-      PSQL_DBNAME: &PSQL_DBNAME "test" 
-      PSQL_USER: &PSQL_USER "test"
-      PSQL_PASS: &PSQL_PASS "testpass"
-      PSQL_HOST: &PSQL_HOST "postgres"
+      PGDATABASE: &PGDATABASE "development"
+      PGUSER: &PGUSER "dbuser"
+      PGPASSWORD: &PGPASSWORD "9bed16f749d74a3c8bfbced18a7647f5"
+      PGHOST: &PGHOST "postgres"
+      PGPORT: &PGPORT "5432"
+      PGSSLMODE: &PGSSLMODE "disable"
+
+      # optional: env for integresql client testing
+      # see https://github.com/allaboutapps/integresql-client-go
+      # INTEGRESQL_CLIENT_BASE_URL: "http://integresql:5000/api"
 
       # [...] additional main service setup
 
   integresql:
-    image: allaboutapps/integresql:latest
+    image: allaboutapps/integresql:1.0.0
     ports:
       - "5000:5000"
     depends_on:
       - postgres
     environment: 
-      PGHOST: *PSQL_HOST
-      PGUSER: *PSQL_USER
-      PGPASSWORD: *PSQL_PASS
+      PGHOST: *PGHOST
+      PGUSER: *PGUSER
+      PGPASSWORD: *PGPASSWORD
 
   postgres:
-    image: postgres:12.2-alpine
-    command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'" # not necessarily required, some performance optimization for rapid integration testing, validate parameters for own requirements
+    image: postgres:12.2-alpine # should be the same version as used in .drone.yml, Dockerfile and live
+    # ATTENTION
+    # fsync=off, synchronous_commit=off and full_page_writes=off
+    # gives us a major speed up during local development and testing (~30%),
+    # however you should NEVER use these settings in PRODUCTION unless
+    # you want to have CORRUPTED data.
+    # DO NOT COPY/PASTE THIS BLINDLY.
+    # YOU HAVE BEEN WARNED.
+    # Apply some performance improvements to pg as these guarantees are not needed while running locally
+    command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
     expose:
       - "5432"
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: *PSQL_DBNAME
-      POSTGRES_USER: *PSQL_USER
-      POSTGRES_PASSWORD: *PSQL_PASS
+      POSTGRES_DB: *PGDATABASE
+      POSTGRES_USER: *PGUSER
+      POSTGRES_PASSWORD: *PGPASSWORD
     volumes:
       - pgvolume:/var/lib/postgresql/data
 
@@ -293,15 +307,17 @@ volumes:
   pgvolume: # declare a named volume to persist DB data
 ```
 
+You may also refer to our [go-starter `docker-compose.yml`](https://github.com/allaboutapps/go-starter/blob/master/docker-compose.yml).
+
 ### Run locally
 
 Running the `IntegreSQL` server locally requires configuration via exported environment variables (see below):
 
 ```bash
 export INTEGRESQL_PORT=5000
-export PSQL_HOST=127.0.0.1
-export PSQL_USER=test
-export PSQL_PASS=testpass
+export PGHOST=127.0.0.1
+export PGUSER=test
+export PGPASSWORD=testpass
 integresql
 ```
 
