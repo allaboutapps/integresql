@@ -40,7 +40,8 @@ Testing our customer backends actually started quite simple:
 * Recreate a PostgreSQL test database
 * Apply all migrations
 * Seed all fixtures
-* Run each test in the same PostgreSQL test database
+* Utilizing the same PostgreSQL test database for each test:
+  * **Run your test code** 
 * Test runner ends
 
 It's quite easy to spot the problem with this approach. Data may be mutated by any single test and is visible from all subsequent tests. It becomes cumbersome to make changes in your test code if you can't rely on a clean state in each and every test.
@@ -51,11 +52,12 @@ Let's try to fix that like this:
 
 * Test runner starts
 * Recreate a PostgreSQL test database
-* Before each test: 
+* **Before each** test: 
   * Truncate
   * Apply all migrations
   * Seed all fixtures
-* Run each test in the same PostgreSQL test database
+* Utilizing the same PostgreSQL test database for each test:
+  * **Run your test code** 
 * Test runner ends
 
 Well, it's now isolated - but testing time has increased by a rather high factor and is totally dependent on your truncate/migrate/seed operations.
@@ -68,10 +70,11 @@ What about using database transactions?
 * Recreate a PostgreSQL test database
 * Apply all migrations
 * Seed all fixtures
-* Before each test: 
+* **Before each** test: 
   * Start a new database transaction
-* Run each test in the same PostgreSQL test database
-* After each test:
+* Utilizing the same PostgreSQL test database for each test:
+  * **Run your test code** 
+* **After each** test:
   * Rollback the database transaction
 * Test runner ends
 
@@ -82,7 +85,8 @@ After spending various time to rewrite all code to actually use the injected dat
 What about using database mocks?
 
 * Test runner starts
-* Run each test with an in-memory mock database
+* Utilizing an in-memory mock database isolated for each test:
+  * **Run your test code** 
 * Test runner ends
 
 I'm generally not a fan of emulating database behavior through a mocking layer while testing/implementing. Even minor version changes of PostgreSQL plus it's extensions (e.g. PostGIS) may introduce slight differences, e.g. how indices are used, function deprecations, query planner, etc. . It might not even be an erroneous result, just performance regressions or slight sorting differences in the returned query result.
@@ -97,9 +101,10 @@ We discovered that using PostgreSQL templates and creating the actual new test d
 * Recreate a PostgreSQL template database
 * Apply all migrations
 * Seed all fixtures
-* Before each test: 
+* **Before each** test: 
   * Create a new PostgreSQL test database from our already migrated/seeded template database
-* Run each test utilizing a new PostgreSQL test database
+* Utilizing a new isolated PostgreSQL test database for each test:
+  * **Run your test code** 
 * Test runner ends
 
 Well, we are up in speed again, but we still can do better, how about...
@@ -114,9 +119,10 @@ Well, we are up in speed again, but we still can do better, how about...
     * Seed all fixtures
   * No, nothing has changed
     * Simply reuse the previous PostgreSQL template database
-* Before each test: 
+* **Before each** test: 
   * Create a new PostgreSQL test database from our already migrated/seeded template database
-* Run each test utilizing a new PostgreSQL test database
+* Utilizing a new isolated PostgreSQL test database for each test:
+  * **Run your test code** 
 * Test runner ends
 
 This gives a significant speed bump as we no longer need to recreate our template database if no files related to the database structure or fixtures have changed. However, we still need to create a new PostgreSQL test database from a template before running any test. Even though this is quite fast, could we do better?
@@ -132,10 +138,11 @@ This gives a significant speed bump as we no longer need to recreate our templat
   * No, nothing has changed
     * Simply reuse the previous PostgreSQL template database
 * Create a pool of n PostgreSQL test databases from our already migrated/seeded template database
-* Before each test: 
-  * Select the first database that is ready from the test pool
-* Run each test utilizing a new PostgreSQL test database
-* After each test: 
+* **Before each** test: 
+  * Select the first new PostgreSQL test database that is ready from the test pool
+* Utilizing your selected PostgreSQL test database from the test pool for each test:
+  * **Run your test code** 
+* **After each** test: 
   * If there are still tests lefts to run add some additional PostgreSQL test databases from our already migrated/seeded template database
 * Test runner ends
 
@@ -148,7 +155,7 @@ We realized that having the above pool logic directly within the test runner is 
 
 As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize our testing strategy with PostgreSQL.
 
-IntegreSQL is a RESTful JSON api distributed as a Docker image or go cli. It manages multiple PostgreSQL templates and their separate pool of test database for your tests. It keeps the pool of test database warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+IntegreSQL is a RESTful JSON api distributed as a Docker image or go cli. It manages multiple PostgreSQL templates and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
 
 Our flow actually changed to this:
 
@@ -168,25 +175,29 @@ Our flow actually changed to this:
       * Some other process has already recreated a PostgreSQL template database for this `hash` (or is currently doing it), you can just consider the template ready at this point.
     * `StatusServiceUnavailable: 503`
       * Typically happens if IntegreSQL cannot communicate with PostgreSQL, fail the test runner process
-* Run the parallel test
-  * `GetTestDatabase: GET /templates/{hash}/tests`
-    * Blocks until the template database is finalized (via `FinalizeTemplate`)
-    * `StatusOK: 200`
-      * You get a fully isolated PostgreSQL database from our already migrated/seeded template database to use within your test
-    * `StatusNotFound: 404`
-      * Well, seems like someone forgot to call `InitializeTemplate` or it errored out.
-    * `StatusGone: 410`
-      * There was an error during test setup with our fixtures, someone called `DiscardTemplate`, thus this template cannot be used.
-    * `StatusServiceUnavailable: 503`
-      * Well, typically a PostgreSQL connectivity problem
-  * *Your test code*
-  * Optional: `ReturnTestDatabase: DELETE /templates/{hash}/tests/{test-database-id}`
+* Run each (parallel) test:
+* **Before each** test `GetTestDatabase: GET /templates/{hash}/tests`
+  * Blocks until the template database is finalized (via `FinalizeTemplate`)
+  * `StatusOK: 200`
+    * You get a fully isolated PostgreSQL database from our already migrated/seeded template database to use within your test
+  * `StatusNotFound: 404`
+    * Well, seems like someone forgot to call `InitializeTemplate` or it errored out.
+  * `StatusGone: 410`
+    * There was an error during test setup with our fixtures, someone called `DiscardTemplate`, thus this template cannot be used.
+  * `StatusServiceUnavailable: 503`
+    * Well, typically a PostgreSQL connectivity problem
+* Utilizing the isolated PostgreSQL test database received from IntegreSQL for each test:
+  * **Run your test code**
+* **After each** test optional: `ReturnTestDatabase: DELETE /templates/{hash}/tests/{test-database-id}`
+  * Marks the test database that it can be wiped early on pool limit overflow (or reused if `true` is submitted)
 * 1..n test runners end
+* ...
+* Subsequent 1..n test runners start/end in parallel and reuse the above logic
 
 This might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for for specific language, we currently have those:
 
-* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go)
-* ...
+* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
+* ... *Add your link here and make a PR*
 
 A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
 
