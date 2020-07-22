@@ -301,7 +301,7 @@ services:
       PGPASSWORD: *PGPASSWORD
 
   postgres:
-    image: postgres:12.2-alpine # should be the same version as used in .drone.yml, Dockerfile and live
+    image: postgres:12.2-alpine # should be the same version as used live
     # ATTENTION
     # fsync=off, synchronous_commit=off and full_page_writes=off
     # gives us a major speed up during local development and testing (~30%),
