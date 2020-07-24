@@ -4,7 +4,7 @@
 
 Do your engineers a favour by allowing them to write fast executing, parallel and deterministic integration tests utilizing **real** PostgreSQL test databases. Resemble your live environment in tests as close as possible.   
 
-[![](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/allaboutapps/integresql?tab=doc) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
+[![](https://img.shields.io/docker/image-size/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![](https://img.shields.io/docker/pulls/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
 
 - [IntegreSQL](#integresql)
   - [Background](#background)
@@ -15,6 +15,8 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
     - [Approach 3a: Isolation by templates](#approach-3a-isolation-by-templates)
     - [Approach 3b: Isolation by cached templates](#approach-3b-isolation-by-cached-templates)
     - [Approach 3c: Isolation by cached templates and pool](#approach-3c-isolation-by-cached-templates-and-pool)
+      - [Approach 3c benchmark 1: Baseline](#approach-3c-benchmark-1-baseline)
+      - [Approach 3c benchmark 2: Small project](#approach-3c-benchmark-2-small-project)
     - [Final approach: IntegreSQL](#final-approach-integresql)
       - [Integrate by client lib](#integrate-by-client-lib)
       - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
@@ -100,7 +102,7 @@ We try to approximate local/test and live as close as possible, therefore using 
 
 ### Approach 3a: Isolation by templates
 
-We discovered that using PostgreSQL templates and creating the actual new test database from them is quite fast, let's to this:
+We discovered that using [PostgreSQL templates](https://www.endpoint.com/blog/2010/05/12/postgresql-template-databases-to) and creating the actual new test database from them is quite fast, let's to this:
 
 * Test runner starts
 * Recreate a PostgreSQL template database
@@ -154,13 +156,75 @@ This gives a significant speed bump as we no longer need to recreate our templat
 Finally, by keeping a warm pool of test database we arrive at the speed of Approach 0, while having the isolation gurantees of all subsequent approaches.
 This is actually the (simplified) strategy, that we have used in [allaboutapps-backend-stack](https://github.com/allaboutapps/aaa-backend-stack) for many years.
 
+#### Approach 3c benchmark 1: Baseline
+
+Here's a quick benchmark of how this strategy typically performed back then:
+
+```
+--- ----------------<storageHelper strategy report>---------------- ---
+    replicas switched:          50     avg=11ms min=1ms max=445ms
+    replicas awaited:           1      prebuffer=8 avg=436ms max=436ms
+    background replicas:        58     avg=272ms min=41ms max=474ms
+    - warm up template (cold):  82%    2675ms
+        * truncate:             62%    2032ms
+        * migrate:              18%    594ms
+        * seed:                 1%     45ms
+    - switching:                17%    571ms
+        * disconnect:           1%     42ms
+        * switch replica:       14%    470ms
+            - resolve next:     1%     34ms
+            - await next:       13%    436ms
+        * reinitialize:         1%     57ms
+    strategy related time:      ---    3246ms
+    vs total executed time:     20%    15538ms
+--- ---------------</ storageHelper strategy report>--------------- ---
+```
+
+This is a rather small testsuite with `50` tests and with a tiny database. Thus the whole test run was finished in `~15sec`. `~2.7sec` were spend setting up the template within the warm up (truncate + migrate + seed) and `~0.6sec` in total waiting for a new test/replica databases to become available for a test. We spend `~20%` of our total execution time running / waiting inside our test strategy approach. 
+
+This a cold start. You pay for this warm-up flow only if no template database was cached by a previous test run (if your migrations + fixtures files - the `hash` over these files - hasn't changed).
+
+A new test database (called a replica here) from this tiny template database took max. `~500ms` to create, on avg. this was ~halfed and most importantly can be done in the background (while some tests already execute).
+
+The cool thing about having a warm pool of replicas setup in the background, is that selecting new replicas from the pool is blazingly fast, as typically they *will be already ready* when it's time to execute the next test. For instance, it took `~500ms` max. and **`11ms` on avg.** to select a new replica for all subsequent tests (we only had to wait once until a replica became available for usage within a test - typically it's the first test to be executed).
+
+#### Approach 3c benchmark 2: Small project
+
+Let's look at a sightly bigger testsuite and see how this approach may possibly scale:
+
+```
+--- -----------------<storageHelper strategy report>------------------ ---
+    replicas switched:             280    avg=26ms min=11ms max=447ms
+    replicas awaited:              1      prebuffer=8 avg=417ms max=417ms
+    background replicas:           288    avg=423ms min=105ms max=2574ms
+    - warm up template (cold):     40%    5151ms
+        * truncate:                8%     980ms
+        * migrate:                 26%    3360ms
+        * seed:                    4%     809ms
+    - switching:                   60%    7461ms
+        * disconnect:              2%     322ms
+        * switch replica:          6%     775ms
+            - resolve next:        2%     358ms
+            - await next:          3%     417ms
+        * reinitialize:            50%    6364ms
+    strategy related time:         ---    12612ms
+    vs total executed time:        11%    111094ms
+--- ----------------</ storageHelper strategy report>----------------- ---
+```
+
+This test suite is larger and comes with `280` tests, the whole test run finished in `~1m50s` (`~390ms` per test on avg.). `~5.2sec` were spend setting up the template and `~7.5sec` in total waiting for a new test / replica databases to become available for a test.
+
+The rise in switching time is expected, as we need way more replicas / test databases this time, however we only spend `~11%` running / waiting inside our test strategy approach. To put that into perspective, each test only had to **wait `~26ms` on avg.** until it could finally execute (and typically, this is solely the time it needs to open up a new database connection).
+
+This should hopefully give you some base understanding on why we consider this testing approach essential for our projects. It's the sweet combination of speed and isolation. 
+
 ### Final approach: IntegreSQL
 
 We realized that having the above pool logic directly within the test runner is actually counterproductive and is further limiting usage from properly utilizing parallel testing (+performance).
 
-As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize our testing strategy with PostgreSQL.
+As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize this testing strategy with PostgreSQL.
 
-IntegreSQL is a RESTful JSON API distributed as Docker image or go cli. It's language agnostic and manages multiple PostgreSQL templates and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+IntegreSQL is a RESTful JSON API distributed as Docker image or go cli. It's language agnostic and manages multiple [PostgreSQL templates](https://supabase.io/blog/2020/07/09/postgresql-templates/) and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
 
 Our flow now finally changed to this:
 
@@ -211,7 +275,7 @@ A really good starting point to write your own integresql-client for a specific 
 
 #### Demo
 
-If you want to take a look on how we with integrate IntegreSQL - ;) - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [testing setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/testing.go). 
+If you want to take a look on how we integrate IntegreSQL - 🤭 - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [testing setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/testing.go). 
 
 ## Install
 
