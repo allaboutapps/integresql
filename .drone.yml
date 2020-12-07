@@ -1,0 +1,218 @@
+# -----------------------------------------------------------------------------
+# SETTINGS
+# -----------------------------------------------------------------------------
+
+# Drone matrix: Additional ENV vars for substitution - http://docs.drone.io/matrix-builds/
+# Will be evaluated BEFORE the YAML is parsed, ONLY strings allowed, NO substitutions ${XXX} here.
+
+matrix:
+  include:
+    - BUILD_ENV: all
+
+# YAML Configuration anchors - https://learnxinyminutes.com/docs/yaml/
+# Will be evaluated WHILE the YAML is parsed, any valid yaml allowed, substitutions ${XXX} allowed.
+
+alias:
+  # The image will be tagged with this, pushed to gcr and referenced with this key in the k8s deployment
+  - &IMAGE_DEPLOY_TAG ${DRONE_COMMIT_SHA}
+
+  # The image name, defaults to lowercase repo name <owner>/<project>, e.g. aw/aaa-cab-kubernetes-test
+  - &IMAGE_DEPLOY_NAME ${DRONE_REPO,,}
+
+  # The intermediate builder image name
+  - &IMAGE_BUILDER_ID ${DRONE_REPO,,}-builder:${DRONE_COMMIT_SHA}
+
+  # The full uniquely tagged app image name
+  - &IMAGE_DEPLOY_ID ${DRONE_REPO,,}:${DRONE_COMMIT_SHA}
+
+  # ENV variables for executing within the test env (similar to the env in docker-compose.yml)
+  - &TEST_ENV
+    CI: ${CI}
+
+    # required: env for main working database, service
+    # default for psql cli tool
+    PGDATABASE: &PGDATABASE "sample"
+    PGUSER: &PGUSER "dbuser"
+    PGPASSWORD: &PGPASSWORD "testpass"
+    PGHOST: &PGHOST "postgres"
+    PGPORT: &PGPORT "5432"
+    PGSSLMODE: &PGSSLMODE "disable"
+
+  # Which build events should trigger the main pipeline (defaults to all)
+  - &BUILD_EVENTS [push, pull_request, tag]
+
+  # Pipeline merge helper: only execute if build event received
+  - &WHEN_BUILD_EVENT
+    when:
+      event: *BUILD_EVENTS
+
+# The actual pipeline building our product
+pipeline:
+  # ---------------------------------------------------------------------------
+  # BUILD
+  # ---------------------------------------------------------------------------
+
+  "database connection":
+    group: build
+    image: postgres:12.4-alpine # should be the same version as used in .drone.yml, .github/workflows, Dockerfile and live
+    commands:
+      # wait for postgres service to become available
+      - |
+        until psql -U $PGUSER -d $PGDATABASE -h postgres \
+         -c "SELECT 1;" >/dev/null 2>&1; do sleep 1; done
+      # query the database
+      - |
+        psql -U $PGUSER -d $PGDATABASE -h postgres \
+          -c "SELECT name, setting FROM pg_settings;"
+    environment: *TEST_ENV
+    <<: *WHEN_BUILD_EVENT
+
+  "docker build (target builder)":
+    group: build
+    image: docker:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      IMAGE_TAG: *IMAGE_BUILDER_ID
+    commands:
+      - "docker build --target builder --compress -t $${IMAGE_TAG} ."
+    <<: *WHEN_BUILD_EVENT
+
+  "docker build (target app)":
+    group: build-app
+    image: docker:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      IMAGE_TAG: *IMAGE_DEPLOY_ID
+    commands:
+      - "docker build --target app --compress -t $${IMAGE_TAG} ."
+    <<: *WHEN_BUILD_EVENT
+
+  # ---------------------------------------------------------------------------
+  # CHECK
+  # ---------------------------------------------------------------------------
+
+  "trivy scan":
+    group: pre-test
+    image: aquasec/trivy:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /server/drone/trivy-cache:/root/.cache/
+    environment:
+      IMAGE_TAG: *IMAGE_DEPLOY_ID
+    commands:
+      # Print report
+      - "trivy image --exit-code 0 --no-progress $${IMAGE_TAG}"
+      # Fail on severity HIGH and CRITICAL
+      - "trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress --ignore-unfixed $${IMAGE_TAG}"
+    <<: *WHEN_BUILD_EVENT
+
+  "build & diff":
+    group: pre-test
+    image: *IMAGE_BUILDER_ID
+    commands:
+      - cd $PROJECT_ROOT_DIR # reuse go build cache from Dockerfile builder stage
+      - make tidy
+      - make build
+      - /bin/cp -Rf $PROJECT_ROOT_DIR/* $DRONE_WORKSPACE # switch back to drone workspace ...
+      - cd $DRONE_WORKSPACE
+      - "git diff --exit-code" # ... for git diffing (otherwise not possible as .git is .dockerignored)
+    environment: *TEST_ENV
+    <<: *WHEN_BUILD_EVENT
+
+  "info":
+    group: test
+    image: *IMAGE_BUILDER_ID
+    commands:
+      - cd $PROJECT_ROOT_DIR # reuse go build cache from Dockerfile builder stage
+      - make info
+    environment: *TEST_ENV
+    <<: *WHEN_BUILD_EVENT
+
+  "test":
+    group: test
+    image: *IMAGE_BUILDER_ID
+    commands:
+      - cd $PROJECT_ROOT_DIR # reuse go build cache from Dockerfile builder stage
+      - make test
+    environment: *TEST_ENV
+    <<: *WHEN_BUILD_EVENT
+
+  # "swagger-codegen-cli":
+  #   group: test
+  #   # https://github.com/swagger-api/swagger-codegen/blob/master/modules/swagger-codegen-cli/Dockerfile
+  #   image: swaggerapi/swagger-codegen-cli
+  #   commands:
+  #     # run the main swagger.yml validation.
+  #     - "java -jar /opt/swagger-codegen-cli/swagger-codegen-cli.jar validate -i ./api/swagger.yml"
+  #   <<: *WHEN_BUILD_EVENT
+
+  "binary: deps":
+    group: test
+    image: *IMAGE_BUILDER_ID
+    commands:
+      - cd $PROJECT_ROOT_DIR
+      - make get-embedded-modules-count
+      - make get-embedded-modules
+    environment: *TEST_ENV
+    <<: *WHEN_BUILD_EVENT
+
+  "binary: licenses":
+    group: test
+    image: *IMAGE_BUILDER_ID
+    commands:
+      - cd $PROJECT_ROOT_DIR
+      - make get-licenses
+    environment: *TEST_ENV
+    secrets: ["GITHUB_TOKEN"] # TOKEN required by license check.
+    <<: *WHEN_BUILD_EVENT
+
+  "docker run (target app)":
+    group: test
+    image: docker:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      <<: *TEST_ENV
+      IMAGE_TAG: *IMAGE_DEPLOY_ID
+    commands:
+      # Note: NO network related tests are possible here, dnd can just
+      # run sibling containers. We have no possibility to connect them
+      # into the drone user defined per build docker network!
+      # https://github.com/drone-plugins/drone-docker/issues/193
+      # https://jpetazzo.github.io/2015/09/03/do-not-use-docker-in-docker-for-ci/
+      - (env | grep "=" | grep -v -e "DRONE=" -e "DRONE_" -e "CI_" -e "CI=" -e "HOME=" -e "HOSTNAME=" -e "SHELL=" -e "PWD=" -e "PATH=") > .hostenv
+      - cat .hostenv
+      - "docker run --env-file .hostenv $${IMAGE_TAG} help"
+      - "docker run --env-file .hostenv $${IMAGE_TAG} env"
+    <<: *WHEN_BUILD_EVENT
+
+# Long living services where the startup order does not matter (otherwise use detach: true)
+services:
+  # ---------------------------------------------------------------------------
+  # SERVICES
+  # ---------------------------------------------------------------------------
+
+  "env":
+    image: alpine
+    commands:
+      - "env | sort"
+
+  "postgres":
+    image: postgres:12.4-alpine # should be the same version as used in .drone.yml, .github/workflows, Dockerfile and live
+    environment:
+      POSTGRES_DB: *PGDATABASE
+      POSTGRES_USER: *PGUSER
+      POSTGRES_PASSWORD: *PGPASSWORD
+      # ATTENTION
+      # fsync=off, synchronous_commit=off and full_page_writes=off
+      # gives us a major speed up during local development and testing (~30%),
+      # however you should NEVER use these settings in PRODUCTION unless
+      # you want to have CORRUPTED data.
+      # DO NOT COPY/PASTE THIS BLINDLY.
+      # YOU HAVE BEEN WARNED.
+      # Apply some performance improvements to pg as these guarantees are not needed while running integration tests
+    command: "-c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
+    <<: *WHEN_BUILD_EVENT
+

@@ -8,9 +8,21 @@ services:
     ports:
       - "5000:5000"
     working_dir: /app
+    user: development
     volumes:
-      - .:/app #:delegated
-      # - ./.pkg:/go/pkg # enable this to reuse the pkg cache
+      # mount working directory
+      # https://code.visualstudio.com/docs/remote/containers-advanced#_update-the-mount-consistency-to-delegated-for-macos
+      # https://docs.docker.com/docker-for-mac/osxfs-caching/#delegated
+      # the container’s view is authoritative (permit delays before updates on the container appear in the host)
+      - .:/app:delegated
+
+      # mount cached go pkg downloads
+      - go-pkg:/go/pkg
+
+      # mount cached vscode container extensions
+      # https://code.visualstudio.com/docs/remote/containers-advanced#_avoiding-extension-reinstalls-on-container-rebuild
+      - vscode-extensions:/home/development/.vscode-server/extensions
+      - vscode-extensions-insiders:/home/development/.vscode-server-insiders/extensions
     depends_on:
       - postgres
     environment: &SERVICE_ENV
@@ -31,7 +43,7 @@ services:
     command: /bin/sh -c "while sleep 1000; do :; done"
 
   postgres:
-    image: postgres:12.2-alpine # should be the same version as used in .drone.yml, Dockerfile and live
+    image: postgres:12.4-alpine # should be the same version as used in .drone.yml, Dockerfile and live
     command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
     expose:
       - "5432"
@@ -45,4 +57,13 @@ services:
       - pgvolume:/var/lib/postgresql/data
 
 volumes:
-  pgvolume: # declare a named volume to persist DB data
+  # postgresql: declare a named volume to persist DB data
+  pgvolume:
+
+  # go: go mod cached downloads
+  go-pkg:
+
+  # vscode: Avoiding extension reinstalls on container rebuild
+  # https://code.visualstudio.com/docs/remote/containers-advanced#_avoiding-extension-reinstalls-on-container-rebuild
+  vscode-extensions:
+  vscode-extensions-insiders:

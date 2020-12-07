@@ -1,6 +1,6 @@
 module github.com/allaboutapps/integresql
 
-go 1.14
+go 1.15
 
 require (
 	github.com/labstack/echo/v4 v4.1.16
