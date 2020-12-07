@@ -38,6 +38,9 @@ alias:
     PGPORT: &PGPORT "5432"
     PGSSLMODE: &PGSSLMODE "disable"
 
+    # required for drone: project root directory, used for relative path resolution
+    PROJECT_ROOT_DIR: /app
+
   # Which build events should trigger the main pipeline (defaults to all)
   - &BUILD_EVENTS [push, pull_request, tag]
 

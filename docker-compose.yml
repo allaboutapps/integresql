@@ -7,7 +7,7 @@ services:
       target: development
     ports:
       - "5000:5000"
-    working_dir: /app
+    working_dir: &PROJECT_ROOT_DIR /app
     user: development
     volumes:
       # mount working directory
@@ -32,6 +32,7 @@ services:
       PGHOST: &PSQL_HOST "postgres"
       PGPORT: &PSQL_PORT "5432"
       PGSSLMODE: &PSQL_SSLMODE "disable"
+      PROJECT_ROOT_DIR: *PROJECT_ROOT_DIR
 
     # Uncomment the next four lines if you will use a ptrace-based debugger like C++, Go, and Rust.
     cap_add:
