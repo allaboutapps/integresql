@@ -78,7 +78,7 @@ pipeline:
       - "docker build --target builder --compress -t $${IMAGE_TAG} ."
     <<: *WHEN_BUILD_EVENT
 
-  "docker build (target app)":
+  "docker build (target integresql)":
     group: build-app
     image: docker:latest
     volumes:
@@ -86,7 +86,7 @@ pipeline:
     environment:
       IMAGE_TAG: *IMAGE_DEPLOY_ID
     commands:
-      - "docker build --target app --compress -t $${IMAGE_TAG} ."
+      - "docker build --target integresql --compress -t $${IMAGE_TAG} ."
     <<: *WHEN_BUILD_EVENT
 
   # ---------------------------------------------------------------------------
@@ -168,25 +168,25 @@ pipeline:
     secrets: ["GITHUB_TOKEN"] # TOKEN required by license check.
     <<: *WHEN_BUILD_EVENT
 
-  "docker run (target app)":
-    group: test
-    image: docker:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      <<: *TEST_ENV
-      IMAGE_TAG: *IMAGE_DEPLOY_ID
-    commands:
-      # Note: NO network related tests are possible here, dnd can just
-      # run sibling containers. We have no possibility to connect them
-      # into the drone user defined per build docker network!
-      # https://github.com/drone-plugins/drone-docker/issues/193
-      # https://jpetazzo.github.io/2015/09/03/do-not-use-docker-in-docker-for-ci/
-      - (env | grep "=" | grep -v -e "DRONE=" -e "DRONE_" -e "CI_" -e "CI=" -e "HOME=" -e "HOSTNAME=" -e "SHELL=" -e "PWD=" -e "PATH=") > .hostenv
-      - cat .hostenv
-      - "docker run --env-file .hostenv $${IMAGE_TAG} help"
-      - "docker run --env-file .hostenv $${IMAGE_TAG} env"
-    <<: *WHEN_BUILD_EVENT
+  # "docker run (target integresql)":
+  #   group: test
+  #   image: docker:latest
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     <<: *TEST_ENV
+  #     IMAGE_TAG: *IMAGE_DEPLOY_ID
+  #   commands:
+  #     # Note: NO network related tests are possible here, dnd can just
+  #     # run sibling containers. We have no possibility to connect them
+  #     # into the drone user defined per build docker network!
+  #     # https://github.com/drone-plugins/drone-docker/issues/193
+  #     # https://jpetazzo.github.io/2015/09/03/do-not-use-docker-in-docker-for-ci/
+  #     - (env | grep "=" | grep -v -e "DRONE=" -e "DRONE_" -e "CI_" -e "CI=" -e "HOME=" -e "HOSTNAME=" -e "SHELL=" -e "PWD=" -e "PATH=") > .hostenv
+  #     - cat .hostenv
+  #     - "docker run --env-file .hostenv $${IMAGE_TAG} help"
+  #     - "docker run --env-file .hostenv $${IMAGE_TAG} env"
+  #   <<: *WHEN_BUILD_EVENT
 
 # Long living services where the startup order does not matter (otherwise use detach: true)
 services:
