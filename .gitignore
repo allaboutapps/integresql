@@ -21,3 +21,9 @@ bin
 
 # local go mod cache
 .pkg
+
+# temporary files
+tmp
+
+# mac specific
+.DS_Store
