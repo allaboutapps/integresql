@@ -269,6 +269,7 @@ The flow above might look intimidating at first glance, but trust us, it's simpl
 * Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
 * Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
 * .NET: [IntegreSQL.EF](https://github.com/mcctomsk/IntegreSql.EF) by [Artur Drobinskiy - @Shaddix](https://github.com/Shaddix)
+* JavaScript/TypeScript: [@devoxa/integresql-client](https://github.com/devoxa/integresql-client) by [Devoxa - @devoxa](https://github.com/devoxa)
 * ... *Add your link here and make a PR*
 
 #### Integrate by RESTful JSON calls
