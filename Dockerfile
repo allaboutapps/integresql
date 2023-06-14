@@ -1,4 +1,4 @@
-FROM golang:1.14.2 AS development
+FROM golang:1.17.13 AS development
 
 # https://github.com/go-modules-by-example/index/blob/master/010_tools/README.md#walk-through
 ENV GOBIN /app/bin
@@ -49,7 +49,7 @@ RUN wget https://github.com/kyoh86/richgo/releases/download/v0.3.3/richgo_0.3.3_
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
     | sh -s -- -b $(go env GOPATH)/bin v1.24.0
 
-# go swagger: (this package should NOT be installed via go get) 
+# go swagger: (this package should NOT be installed via go get)
 # https://github.com/go-swagger/go-swagger/releases
 RUN curl -o /usr/local/bin/swagger -L'#' \
     "https://github.com/go-swagger/go-swagger/releases/download/v0.23.0/swagger_linux_amd64" \
