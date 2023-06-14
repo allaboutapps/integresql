@@ -133,27 +133,25 @@ func (c *Client) SetupTemplate(ctx context.Context, hash string, init func(conn 
 
 func (c *Client) SetupTemplateWithDBClient(ctx context.Context, hash string, init func(db *sql.DB) error) error {
 	template, err := c.InitializeTemplate(ctx, hash)
-	if err == nil {
-		db, err := sql.Open("postgres", template.Config.ConnectionString())
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-
-		if err := db.PingContext(ctx); err != nil {
-			return err
-		}
-
-		if err := init(db); err != nil {
-			return err
-		}
-
-		return c.FinalizeTemplate(ctx, hash)
-	} else if err == manager.ErrTemplateAlreadyInitialized {
-		return nil
-	} else {
+	if err != nil {
 		return err
 	}
+
+	db, err := sql.Open("postgres", template.Config.ConnectionString())
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return err
+	}
+
+	if err := init(db); err != nil {
+		return err
+	}
+
+	return c.FinalizeTemplate(ctx, hash)
 }
 
 func (c *Client) DiscardTemplate(ctx context.Context, hash string) error {
