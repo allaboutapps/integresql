@@ -106,7 +106,7 @@ func TestManagerInitializeTemplateDatabase(t *testing.T) {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
 
-	if template.Ready() {
+	if template.Ready(ctx) {
 		t.Error("template database is marked as ready")
 	}
 	if template.TemplateHash != hash {
@@ -151,7 +151,7 @@ func TestManagerInitializeTemplateDatabaseConcurrently(t *testing.T) {
 	wg.Add(templateDBCount)
 
 	for i := 0; i < templateDBCount; i++ {
-		go initTemplateDB(&wg, errs, m)
+		go initTemplateDB(ctx, &wg, errs, m)
 	}
 
 	wg.Wait()
@@ -213,7 +213,7 @@ func TestManagerFinalizeTemplateDatabase(t *testing.T) {
 		t.Fatalf("failed to finalize template database: %v", err)
 	}
 
-	if !template.Ready() {
+	if !template.Ready(ctx) {
 		t.Error("template database is flagged as not ready")
 	}
 }
@@ -299,7 +299,7 @@ func TestManagerGetTestDatabase(t *testing.T) {
 		t.Fatalf("failed to get test database: %v", err)
 	}
 
-	if !test.Ready() {
+	if !test.Ready(ctx) {
 		t.Error("test database is flagged not ready")
 	}
 
@@ -363,11 +363,11 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 			return
 		}
 
-		if !test.Ready() {
+		if !test.Ready(ctx) {
 			testCh <- errors.New("test database is flagged as not ready")
 			return
 		}
-		if !test.Dirty() {
+		if !test.Dirty(ctx) {
 			testCh <- errors.New("test database is not flagged as dirty")
 		}
 
@@ -443,7 +443,7 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 	wg.Add(testDBCount)
 
 	for i := 0; i < testDBCount; i++ {
-		go getTestDB(&wg, errs, m)
+		go getTestDB(ctx, &wg, errs, m)
 	}
 
 	wg.Wait()
@@ -499,7 +499,7 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 	wg.Add(testDBCount)
 
 	for i := 0; i < testDBCount; i++ {
-		go getTestDB(&wg, errs, m)
+		go getTestDB(ctx, &wg, errs, m)
 	}
 
 	if err := m.DiscardTemplateDatabase(ctx, hash); err != nil {
@@ -561,7 +561,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 	wg.Add(testDBCount)
 
 	for i := 0; i < testDBCount; i++ {
-		go getTestDB(&wg, errs, m)
+		go getTestDB(ctx, &wg, errs, m)
 	}
 
 	if err := m.DiscardTemplateDatabase(ctx, hash); err != nil {
