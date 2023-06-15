@@ -151,7 +151,10 @@ func TestManagerInitializeTemplateDatabaseConcurrently(t *testing.T) {
 	wg.Add(templateDBCount)
 
 	for i := 0; i < templateDBCount; i++ {
-		go initTemplateDB(ctx, &wg, errs, m)
+		go func() {
+			defer wg.Done()
+			initTemplateDB(ctx, errs, m)
+		}()
 	}
 
 	wg.Wait()
@@ -443,7 +446,10 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 	wg.Add(testDBCount)
 
 	for i := 0; i < testDBCount; i++ {
-		go getTestDB(ctx, &wg, errs, m)
+		go func() {
+			defer wg.Done()
+			getTestDB(ctx, errs, m)
+		}()
 	}
 
 	wg.Wait()
@@ -499,7 +505,10 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 	wg.Add(testDBCount)
 
 	for i := 0; i < testDBCount; i++ {
-		go getTestDB(ctx, &wg, errs, m)
+		go func() {
+			defer wg.Done()
+			getTestDB(ctx, errs, m)
+		}()
 	}
 
 	if err := m.DiscardTemplateDatabase(ctx, hash); err != nil {
@@ -561,7 +570,10 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 	wg.Add(testDBCount)
 
 	for i := 0; i < testDBCount; i++ {
-		go getTestDB(ctx, &wg, errs, m)
+		go func() {
+			defer wg.Done()
+			getTestDB(ctx, errs, m)
+		}()
 	}
 
 	if err := m.DiscardTemplateDatabase(ctx, hash); err != nil {

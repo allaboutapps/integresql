@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 )
@@ -31,8 +30,7 @@ func disconnectManager(t *testing.T, m *Manager) {
 	}
 }
 
-func initTemplateDB(ctx context.Context, wg *sync.WaitGroup, errs chan<- error, m *Manager) {
-	defer wg.Done()
+func initTemplateDB(ctx context.Context, errs chan<- error, m *Manager) {
 
 	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash")
 	if err != nil {
@@ -140,8 +138,7 @@ func verifyTestDB(t *testing.T, test *TestDatabase) {
 	}
 }
 
-func getTestDB(ctx context.Context, wg *sync.WaitGroup, errs chan<- error, m *Manager) {
-	defer wg.Done()
+func getTestDB(ctx context.Context, errs chan<- error, m *Manager) {
 
 	db, err := m.GetTestDatabase(context.Background(), "hashinghash")
 	if err != nil {

@@ -178,8 +178,6 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 		testDatabases: make([]*TestDatabase, 0),
 	}
 
-	m.templates[hash] = template
-
 	reg = trace.StartRegion(ctx, "drop_and_create_db")
 	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
 		delete(m.templates, hash)
@@ -187,6 +185,8 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 		return nil, err
 	}
 	reg.End()
+
+	m.templates[hash] = template
 
 	return template, nil
 }
@@ -268,7 +268,10 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 	template.FlagAsReady(ctx)
 
 	m.wg.Add(1)
-	go m.addTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
+	go func() {
+		defer m.wg.Done()
+		m.addTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
+	}()
 
 	return template, nil
 }
@@ -550,7 +553,6 @@ func (m *Manager) createNextTestDatabase(ctx context.Context, template *Template
 // Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.
 // This function will lock `template` until all requested test DBs have been created and signal the WaitGroup about completion afterwards.
 func (m *Manager) addTestDatabasesInBackground(template *TemplateDatabase, count int) {
-	defer m.wg.Done()
 
 	template.Lock()
 	defer template.Unlock()
