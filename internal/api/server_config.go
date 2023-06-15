@@ -12,6 +12,6 @@ func DefaultServerConfigFromEnv() ServerConfig {
 	return ServerConfig{
 		Address:        util.GetEnv("INTEGRESQL_ADDRESS", ""),
 		Port:           util.GetEnvAsInt("INTEGRESQL_PORT", 5000),
-		DebugEndpoints: util.GetEnvAsBool("INTEGRESQL_DEBUG_ENDPOINTS", false),
+		DebugEndpoints: util.GetEnvAsBool("INTEGRESQL_DEBUG_ENDPOINTS", true),
 	}
 }

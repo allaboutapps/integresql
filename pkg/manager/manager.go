@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime/trace"
 	"sort"
 	"sync"
 	"time"
@@ -138,12 +139,17 @@ func (m *Manager) Initialize(ctx context.Context) error {
 }
 
 func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (*TemplateDatabase, error) {
+	ctx, task := trace.NewTask(ctx, "initialize_template_db")
+	defer task.End()
+
 	if !m.Ready() {
 		return nil, ErrManagerNotReady
 	}
 
+	reg := trace.StartRegion(ctx, "get_template_lock")
 	m.templateMutex.Lock()
 	defer m.templateMutex.Unlock()
+	reg.End()
 
 	_, ok := m.templates[hash]
 
@@ -174,24 +180,30 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 
 	m.templates[hash] = template
 
+	reg = trace.StartRegion(ctx, "drop_and_create_db")
 	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
 		delete(m.templates, hash)
-		// m.templates[hash] = nil
 
 		return nil, err
 	}
+	reg.End()
 
 	return template, nil
 }
 
 func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error {
 
+	ctx, task := trace.NewTask(ctx, "discard_template_db")
+	defer task.End()
+
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
 
+	reg := trace.StartRegion(ctx, "get_template_lock")
 	m.templateMutex.Lock()
 	defer m.templateMutex.Unlock()
+	reg.End()
 
 	template, ok := m.templates[hash]
 
@@ -216,19 +228,23 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	}
 	cancel()
 
-	// m.templates[hash] = nil
 	delete(m.templates, hash)
 
 	return nil
 }
 
 func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*TemplateDatabase, error) {
+	ctx, task := trace.NewTask(ctx, "finalize_template_db")
+	defer task.End()
+
 	if !m.Ready() {
 		return nil, ErrManagerNotReady
 	}
 
+	reg := trace.StartRegion(ctx, "get_template_lock")
 	m.templateMutex.Lock()
 	defer m.templateMutex.Unlock()
+	reg.End()
 
 	template, ok := m.templates[hash]
 
@@ -258,11 +274,16 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 }
 
 func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (*TestDatabase, error) {
+	ctx, task := trace.NewTask(ctx, "get_test_db")
+	defer task.End()
+
 	if !m.Ready() {
 		return nil, ErrManagerNotReady
 	}
 
+	reg := trace.StartRegion(ctx, "get_template_lock")
 	m.templateMutex.RLock()
+	reg.End()
 	template, ok := m.templates[hash]
 	m.templateMutex.RUnlock()
 
@@ -444,8 +465,7 @@ func (m *Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool,
 
 func (m *Manager) createDatabase(ctx context.Context, dbName string, owner string, template string) error {
 
-	// ts := time.Now()
-	// fmt.Println("createDatabase", dbName, ts)
+	defer trace.StartRegion(ctx, "create_db").End()
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))); err != nil {
 		return err
@@ -456,8 +476,7 @@ func (m *Manager) createDatabase(ctx context.Context, dbName string, owner strin
 
 func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 
-	// ts := time.Now()
-	// fmt.Println("dropDatabase", dbName, ts)
+	defer trace.StartRegion(ctx, "drop_db").End()
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		return err

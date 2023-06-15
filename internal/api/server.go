@@ -8,6 +8,8 @@ import (
 	"net"
 	"time"
 
+	_ "net/http/pprof"
+
 	"github.com/allaboutapps/integresql/pkg/manager"
 	"github.com/allaboutapps/integresql/pkg/util"
 	"github.com/labstack/echo/v4"
