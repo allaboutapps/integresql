@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/allaboutapps/integresql/internal/api"
 	"github.com/allaboutapps/integresql/internal/api/admin"
 	"github.com/allaboutapps/integresql/internal/api/templates"
@@ -22,4 +24,9 @@ func Init(s *api.Server) {
 
 	admin.InitRoutes(s)
 	templates.InitRoutes(s)
+
+	// enable debug endpoints only if requested
+	if s.Config.DebugEndpoints {
+		s.Echo.GET("/debug/*", echo.WrapHandler(http.DefaultServeMux))
+	}
 }
