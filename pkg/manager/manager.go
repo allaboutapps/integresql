@@ -220,7 +220,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	}
 
 	// discard any still waiting dbs.
-	template.FlagAsDiscarded()
+	template.FlagAsDiscarded(ctx)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if err := template.WaitUntilReady(ctx); err != nil {
@@ -253,7 +253,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 		return nil, ErrTemplateNotFound
 	}
 
-	state := template.State()
+	state := template.State(ctx)
 
 	// early bailout if we are already ready (multiple calls)
 	if state == databaseStateReady {
@@ -265,7 +265,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*T
 		return nil, ErrDatabaseDiscarded
 	}
 
-	template.FlagAsReady()
+	template.FlagAsReady(ctx)
 
 	m.wg.Add(1)
 	go m.addTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
@@ -300,7 +300,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (*TestDataba
 
 	var testDB *TestDatabase
 	for _, db := range template.testDatabases {
-		if db.ReadyForTest() {
+		if db.ReadyForTest(ctx) {
 			testDB = db
 			break
 		}
@@ -314,7 +314,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (*TestDataba
 		}
 	}
 
-	testDB.FlagAsDirty()
+	testDB.FlagAsDirty(ctx)
 
 	m.wg.Add(1)
 	go m.addTestDatabasesInBackground(template, 1)
@@ -346,7 +346,7 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 	for _, db := range template.testDatabases {
 		if db.ID == id {
 			found = true
-			db.FlagAsClean()
+			db.FlagAsClean(ctx)
 			break
 		}
 	}
@@ -526,7 +526,7 @@ func (m *Manager) createNextTestDatabase(ctx context.Context, template *Template
 	if template.nextTestID > m.config.TestDatabaseMaxPoolSize {
 		i := 0
 		for idx, db := range template.testDatabases {
-			if db.Dirty() {
+			if db.Dirty(ctx) {
 				i = idx
 				break
 			}

@@ -31,7 +31,7 @@ func disconnectManager(t *testing.T, m *Manager) {
 	}
 }
 
-func initTemplateDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
+func initTemplateDB(ctx context.Context, wg *sync.WaitGroup, errs chan<- error, m *Manager) {
 	defer wg.Done()
 
 	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash")
@@ -40,7 +40,7 @@ func initTemplateDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
 		return
 	}
 
-	if template.Ready() {
+	if template.Ready(ctx) {
 		errs <- errors.New("template database is marked as ready")
 		return
 	}
@@ -140,7 +140,7 @@ func verifyTestDB(t *testing.T, test *TestDatabase) {
 	}
 }
 
-func getTestDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
+func getTestDB(ctx context.Context, wg *sync.WaitGroup, errs chan<- error, m *Manager) {
 	defer wg.Done()
 
 	db, err := m.GetTestDatabase(context.Background(), "hashinghash")
@@ -149,11 +149,11 @@ func getTestDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
 		return
 	}
 
-	if !db.Ready() {
+	if !db.Ready(ctx) {
 		errs <- errors.New("test database is marked as not ready")
 		return
 	}
-	if !db.Dirty() {
+	if !db.Dirty(ctx) {
 		errs <- errors.New("test database is not marked as dirty")
 	}
 

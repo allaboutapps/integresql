@@ -1,5 +1,7 @@
 package manager
 
+import "context"
+
 type TestDatabase struct {
 	Database `json:"database"`
 
@@ -8,29 +10,29 @@ type TestDatabase struct {
 	dirty bool
 }
 
-func (t *TestDatabase) Dirty() bool {
+func (t *TestDatabase) Dirty(ctx context.Context) bool {
 	t.RLock()
 	defer t.RUnlock()
 
 	return t.dirty
 }
 
-func (t *TestDatabase) FlagAsDirty() {
+func (t *TestDatabase) FlagAsDirty(ctx context.Context) {
 	t.Lock()
 	defer t.Unlock()
 
 	t.dirty = true
 }
 
-func (t *TestDatabase) FlagAsClean() {
+func (t *TestDatabase) FlagAsClean(ctx context.Context) {
 	t.Lock()
 	defer t.Unlock()
 
 	t.dirty = false
 }
 
-func (t *TestDatabase) ReadyForTest() bool {
-	return t.Ready() && !t.Dirty()
+func (t *TestDatabase) ReadyForTest(ctx context.Context) bool {
+	return t.Ready(ctx) && !t.Dirty(ctx)
 }
 
 type ByID []*TestDatabase
