@@ -12,31 +12,33 @@ var (
 	ErrPoolFull     = errors.New("database pool is full")
 	ErrNotInPool    = errors.New("database is not in the pool")
 	ErrNoDBReady    = errors.New("no database is currently ready, perhaps you need to create one")
-	ErrInvalidIndex = errors.New("invalid index == poor implementation :(")
+	ErrInvalidIndex = errors.New("invalid database index (ID)")
 )
 
 type DBPool struct {
-	pool  map[string]*dbHashPool  // map[hash]
-	ready map[string][]int        // map[hash]
-	dirty map[string]map[int]bool // map[hash]
+	pool  map[string]*dbHashPool // map[hash]
+	ready map[string]dbIDMap     // map[hash], initalized DBs according to a template, ready to pick them up
+	dirty map[string]dbIDMap     // map[hash], returned DBs, need to be initalized again to reuse them
 	sync.RWMutex
 
 	maxPoolSize int
 }
 
+type dbIDMap map[int]bool // map[db ID]
+
 func NewDBPool(maxPoolSize int) *DBPool {
 	return &DBPool{
-		pool:        make(map[string]*dbHashPool),
-		ready:       make(map[string][]int),
-		dirty:       make(map[string]map[int]bool),
+		pool: make(map[string]*dbHashPool),
+
+		ready: make(map[string]dbIDMap),
+		dirty: make(map[string]dbIDMap),
+
 		maxPoolSize: maxPoolSize,
 	}
 }
 
 type dbHashPool struct {
 	dbs []TestDatabase
-
-	sync.RWMutex
 }
 
 func newDBHashPool(maxPoolSize int) *dbHashPool {
@@ -45,90 +47,84 @@ func newDBHashPool(maxPoolSize int) *dbHashPool {
 	}
 }
 
-func (p *DBPool) GetReadyDB(ctx context.Context, hash string) (TestDatabase, error) {
+func popFirstKey(idMap dbIDMap) int {
+	id := -1
+	for key := range idMap {
+		id = key
+		break
+	}
+	delete(idMap, id)
+	return id
+}
+
+func (p *DBPool) GetDB(ctx context.Context, hash string) (db TestDatabase, isDirty bool, err error) {
 	var hashDBs *dbHashPool
 	var index int
 
 	// !
 	// DBPool locked
-	{
-		p.Lock()
-		defer p.Unlock()
+	p.Lock()
+	defer p.Unlock()
 
-		ready := p.ready[hash]
-		if len(ready) == 0 {
-			return TestDatabase{}, ErrNoDBReady
-		}
-
-		// get and remove last 'ready' index
-		index = ready[len(ready)-1]
-		ready = ready[:len(ready)-1]
+	ready := p.ready[hash]
+	if len(ready) > 0 {
+		// if there are some ready to be used DB, just get one
+		index = popFirstKey(ready)
 		p.ready[hash] = ready
-
-		// sanity check, should never happen
-		if index >= p.maxPoolSize {
-			return TestDatabase{}, ErrInvalidIndex
-		}
-
-		hashDBs = p.pool[hash]
-		if hashDBs == nil {
-			// should not happen
-			return TestDatabase{}, ErrPoolEmpty
-		}
-
-		// add the index to 'dirty'
+	} else {
+		// if no DBs are ready, reuse the dirty ones
 		dirty := p.dirty[hash]
-		if dirty == nil {
-			dirty = make(map[int]bool)
+		if len(dirty) == 0 {
+			return TestDatabase{}, false, ErrNoDBReady
 		}
-		dirty[index] = true
-		p.dirty[hash] = dirty
 
-		// !
-		// dbHashPool locked before unlocking DBPool
-		hashDBs.Lock()
+		isDirty = true
+		index = popFirstKey(dirty)
+		p.dirty[hash] = dirty
 	}
-	// DBPool unlocked
-	// !
-	defer hashDBs.Unlock()
+
+	// sanity check, should never happen
+	if index < 0 || index >= p.maxPoolSize {
+		return TestDatabase{}, false, ErrInvalidIndex
+	}
+
+	hashDBs = p.pool[hash]
+	if hashDBs == nil {
+		// should not happen
+		return TestDatabase{}, false, ErrPoolEmpty
+	}
 
 	// pick a ready test database from the index
 	if len(hashDBs.dbs) <= index {
-		return TestDatabase{}, ErrInvalidIndex
+		return TestDatabase{}, false, ErrInvalidIndex
 	}
 
-	return hashDBs.dbs[index], nil
-	// dbHashPool unlocked
+	return hashDBs.dbs[index], isDirty, nil
+	// DBPool unlocked
 	// !
 }
 
-func (p *DBPool) AddTestDatabase(ctx context.Context, template TemplateConfig, dbNamePrefix string) (TestDatabase, error) {
+func (p *DBPool) AddTestDatabase(ctx context.Context, template TemplateConfig, dbNamePrefix string, initFunc func(TestDatabase) error) (TestDatabase, error) {
 	var newTestDB TestDatabase
 	hash := template.TemplateHash
 
-	// !
-	// DBPool locked
+	p.Lock()
+	defer p.Unlock()
+
+	hashDBs := p.pool[hash]
+	if hashDBs == nil {
+		hashDBs = newDBHashPool(p.maxPoolSize)
+		p.pool[hash] = hashDBs
+	}
+
+	// get index of a next test DB - its ID
+	index := len(hashDBs.dbs)
+	if index >= p.maxPoolSize {
+		return TestDatabase{}, ErrPoolFull
+	}
+
 	{
-		p.Lock()
-		defer p.Unlock()
-
-		hashDBs := p.pool[hash]
-		if hashDBs == nil {
-			hashDBs = newDBHashPool(p.maxPoolSize)
-			p.pool[hash] = hashDBs
-		}
-
-		// !
-		// dbHashPool locked
-		hashDBs.Lock()
-		defer hashDBs.Unlock()
-
-		// get index of a next test DB - its ID
-		index := len(hashDBs.dbs)
-		if index >= p.maxPoolSize {
-			return TestDatabase{}, ErrPoolFull
-		}
-
+		// initalization of a new DB
 		newTestDB = TestDatabase{
 			Database: Database{
 				TemplateHash: template.TemplateHash,
@@ -140,47 +136,51 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, template TemplateConfig, d
 		dbName := fmt.Sprintf("%s%03d", dbNamePrefix, index)
 		newTestDB.Database.Config.Database = dbName
 
-		// add new test DB to the pool
-		hashDBs.dbs = append(hashDBs.dbs, newTestDB)
-
-		// and add its index to 'ready'
-		ready := p.ready[hash]
-		if ready == nil {
-			ready = make([]int, 0, p.maxPoolSize)
+		if err := initFunc(newTestDB); err != nil {
+			return TestDatabase{}, err
 		}
-		ready = append(ready, index)
-		p.ready[hash] = ready
-
-		hashDBs.Lock()
 	}
-	// dbHashPool unlocked
-	// !
-	// DBPool unlocked
-	// !
+
+	// add new test DB to the pool
+	hashDBs.dbs = append(hashDBs.dbs, newTestDB)
+
+	// and add its index to 'ready'
+	ready := p.ready[hash]
+	if ready == nil {
+		ready = make(dbIDMap)
+	}
+
+	ready[index] = true
+	p.ready[hash] = ready
 
 	return newTestDB, nil
+	// DBPool unlocked
+	// !
 }
 
 func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 
 	// !
 	// DBPool locked
-	{
-		p.Lock()
-		defer p.Unlock()
+	p.Lock()
+	defer p.Unlock()
 
-		dirty := p.dirty[hash]
-		if len(dirty) == 0 {
-			return ErrNotInPool
-		}
-
-		exists := dirty[id]
-		if !exists {
-			return ErrNotInPool
-		}
-
-		// p.ready
-
+	if id < 0 || id >= p.maxPoolSize {
+		return ErrInvalidIndex
 	}
 
+	dirty := p.dirty[hash]
+	// check if pool has been already returned
+	if dirty != nil && len(dirty) > 0 {
+		exists := dirty[id]
+		if exists {
+			return ErrNotInPool
+		}
+	}
+
+	// ok, it hasn't been returned yet
+	dirty[id] = true
+	p.dirty[hash] = dirty
+
+	return nil
 }
