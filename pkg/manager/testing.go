@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/allaboutapps/integresql/pkg/db"
 )
 
 func testManagerFromEnv() *Manager {
@@ -38,15 +40,15 @@ func initTemplateDB(ctx context.Context, errs chan<- error, m *Manager) {
 		return
 	}
 
-	if template.Ready(ctx) {
-		errs <- errors.New("template database is marked as ready")
+	if template.TemplateHash != "hashinghash" {
+		errs <- errors.New("template database is invalid")
 		return
 	}
 
 	errs <- nil
 }
 
-func populateTemplateDB(t *testing.T, template *TemplateDatabase) {
+func populateTemplateDB(t *testing.T, template db.Database) {
 	t.Helper()
 
 	db, err := sql.Open("postgres", template.Config.ConnectionString())

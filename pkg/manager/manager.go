@@ -10,6 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/pool"
+	"github.com/allaboutapps/integresql/pkg/templates"
 	"github.com/lib/pq"
 )
 
@@ -26,14 +29,19 @@ type Manager struct {
 	templates     map[string]*TemplateDatabase
 	templateMutex sync.RWMutex
 	wg            sync.WaitGroup
+
+	templatesX *templates.Collection
+	pool       *pool.DBPool
 }
 
 func New(config ManagerConfig) *Manager {
 	m := &Manager{
-		config:    config,
-		db:        nil,
-		templates: map[string]*TemplateDatabase{},
-		wg:        sync.WaitGroup{},
+		config:     config,
+		db:         nil,
+		templates:  map[string]*TemplateDatabase{},
+		wg:         sync.WaitGroup{},
+		templatesX: templates.NewCollection(),
+		pool:       pool.NewDBPool(config.TestDatabaseMaxPoolSize),
 	}
 
 	if len(m.config.TestDatabaseOwner) == 0 {
@@ -138,57 +146,42 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (*TemplateDatabase, error) {
+func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.Database, error) {
 	ctx, task := trace.NewTask(ctx, "initialize_template_db")
 	defer task.End()
 
 	if !m.Ready() {
-		return nil, ErrManagerNotReady
+		return db.Database{}, ErrManagerNotReady
 	}
-
-	reg := trace.StartRegion(ctx, "get_template_lock")
-	m.templateMutex.Lock()
-	defer m.templateMutex.Unlock()
-	reg.End()
-
-	_, ok := m.templates[hash]
-
-	if ok {
-		// fmt.Println("initialized!", ok)
-		return nil, ErrTemplateAlreadyInitialized
-	}
-
-	// fmt.Println("initializing...", ok)
 
 	dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
-	template := &TemplateDatabase{
-		Database: Database{
-			TemplateHash: hash,
-			Config: DatabaseConfig{
-				Host:     m.config.ManagerDatabaseConfig.Host,
-				Port:     m.config.ManagerDatabaseConfig.Port,
-				Username: m.config.ManagerDatabaseConfig.Username,
-				Password: m.config.ManagerDatabaseConfig.Password,
-				Database: dbName,
-			},
-			state: databaseStateInit,
-			c:     make(chan struct{}),
-		},
-		nextTestID:    0,
-		testDatabases: make([]*TestDatabase, 0),
+	templateConfig := db.DatabaseConfig{
+		Host:     m.config.ManagerDatabaseConfig.Host,
+		Port:     m.config.ManagerDatabaseConfig.Port,
+		Username: m.config.ManagerDatabaseConfig.Username,
+		Password: m.config.ManagerDatabaseConfig.Password,
+		Database: dbName,
 	}
 
-	reg = trace.StartRegion(ctx, "drop_and_create_db")
-	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
-		delete(m.templates, hash)
+	added, unlock := m.templatesX.Push(ctx, hash, templateConfig)
+	defer unlock()
 
-		return nil, err
+	if !added {
+		return db.Database{}, ErrTemplateAlreadyInitialized
+	}
+
+	reg := trace.StartRegion(ctx, "drop_and_create_db")
+	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
+		m.templatesX.RemoveUnsafe(ctx, hash)
+
+		return db.Database{}, err
 	}
 	reg.End()
 
-	m.templates[hash] = template
-
-	return template, nil
+	return db.Database{
+		TemplateHash: hash,
+		Config:       templateConfig,
+	}, nil
 }
 
 func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error {
