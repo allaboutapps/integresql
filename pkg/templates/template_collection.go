@@ -9,7 +9,7 @@ import (
 )
 
 type Collection struct {
-	templates     map[string]db.DatabaseConfig
+	templates     map[string]db.Database
 	templateMutex sync.RWMutex
 }
 
@@ -17,7 +17,7 @@ type Unlock func()
 
 func NewCollection() *Collection {
 	return &Collection{
-		templates:     make(map[string]db.DatabaseConfig),
+		templates:     make(map[string]db.Database),
 		templateMutex: sync.RWMutex{},
 	}
 }
@@ -36,24 +36,43 @@ func (tc *Collection) Push(ctx context.Context, hash string, template db.Databas
 		return false, unlock
 	}
 
-	tc.templates[hash] = template
+	tc.templates[hash] = db.Database{TemplateHash: hash, Config: template}
 	return true, unlock
 }
 
-func (tc *Collection) Pop(ctx context.Context, hash string) db.DatabaseConfig {
+func (tc *Collection) Pop(ctx context.Context, hash string) (template db.Database, found bool, unlock Unlock) {
 	reg := trace.StartRegion(ctx, "get_template_lock")
-	defer reg.End()
-
 	tc.templateMutex.Lock()
-	defer tc.templateMutex.Unlock()
+
+	unlock = func() {
+		tc.templateMutex.Unlock()
+		reg.End()
+	}
 
 	template, ok := tc.templates[hash]
 	if !ok {
-		return db.DatabaseConfig{}
+		return db.Database{}, false, unlock
 	}
 
 	delete(tc.templates, hash)
-	return template
+	return template, true, unlock
+}
+
+func (tc *Collection) Get(ctx context.Context, hash string) (template db.Database, found bool, unlock Unlock) {
+	reg := trace.StartRegion(ctx, "get_template_lock")
+	tc.templateMutex.Lock()
+
+	unlock = func() {
+		tc.templateMutex.Unlock()
+		reg.End()
+	}
+
+	template, ok := tc.templates[hash]
+	if !ok {
+		return db.Database{}, false, unlock
+	}
+
+	return template, true, unlock
 }
 
 func (tc *Collection) RemoveUnsafe(ctx context.Context, hash string) {

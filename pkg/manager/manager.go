@@ -154,7 +154,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 		return db.Database{}, ErrManagerNotReady
 	}
 
-	dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+	dbName := m.makeTemplateDatabaseName(hash)
 	templateConfig := db.DatabaseConfig{
 		Host:     m.config.ManagerDatabaseConfig.Host,
 		Port:     m.config.ManagerDatabaseConfig.Port,
@@ -193,15 +193,13 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		return ErrManagerNotReady
 	}
 
-	reg := trace.StartRegion(ctx, "get_template_lock")
-	m.templateMutex.Lock()
-	defer m.templateMutex.Unlock()
-	reg.End()
+	template, found, unlock := m.templatesX.Pop(ctx, hash)
+	defer unlock()
+	dbName := template.Config.Database
 
-	template, ok := m.templates[hash]
-
-	if !ok {
-		dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+	if !found {
+		// even if a template is not found in the collection, it might still exist in the DB
+		dbName = m.makeTemplateDatabaseName(hash)
 		exists, err := m.checkDatabaseExists(ctx, dbName)
 		if err != nil {
 			return err
@@ -212,18 +210,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		}
 	}
 
-	// discard any still waiting dbs.
-	template.FlagAsDiscarded(ctx)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := template.WaitUntilReady(ctx); err != nil {
-		cancel()
-	}
-	cancel()
-
-	delete(m.templates, hash)
-
-	return nil
+	return m.dropDatabase(ctx, dbName)
 }
 
 func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*TemplateDatabase, error) {
@@ -556,4 +543,12 @@ func (m *Manager) addTestDatabasesInBackground(template *TemplateDatabase, count
 		// TODO log error somewhere instead of silently swallowing it?
 		_, _ = m.createNextTestDatabase(ctx, template)
 	}
+}
+
+func (m *Manager) makeTemplateDatabaseName(hash string) string {
+	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+}
+
+func (m *Manager) makeTestDatabasePrefix(hash string) string {
+	return fmt.Sprintf("%s_%s_%s_", m.config.DatabasePrefix, m.config.TestDatabasePrefix, hash)
 }
