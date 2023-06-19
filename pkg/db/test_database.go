@@ -1,4 +1,4 @@
-package manager
+package db
 
 type TestDatabase struct {
 	Database `json:"database"`

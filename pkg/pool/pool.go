@@ -1,18 +1,20 @@
-package manager
+package pool
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/allaboutapps/integresql/pkg/db"
 )
 
 var (
-	ErrNoPool       = errors.New("no database exists for this hash")
+	ErrNoPool       = errors.New("no db.Database exists for this hash")
 	ErrPoolFull     = errors.New("database pool is full")
 	ErrNotInPool    = errors.New("database is not in the pool")
-	ErrNoDBReady    = errors.New("no database is currently ready, perhaps you need to create one")
-	ErrInvalidIndex = errors.New("invalid database index (ID)")
+	ErrNoDBReady    = errors.New("no db.Database is currently ready, perhaps you need to create one")
+	ErrInvalidIndex = errors.New("invalid db.Database index (ID)")
 )
 
 type DBPool struct {
@@ -33,7 +35,7 @@ func NewDBPool(maxPoolSize int) *DBPool {
 }
 
 type dbHashPool struct {
-	dbs   []TestDatabase
+	dbs   []db.TestDatabase
 	ready dbIDMap // initalized DBs according to a template, ready to pick them up
 	dirty dbIDMap // returned DBs, need to be initalized again to reuse them
 
@@ -42,7 +44,7 @@ type dbHashPool struct {
 
 func newDBHashPool(maxPoolSize int) *dbHashPool {
 	return &dbHashPool{
-		dbs:   make([]TestDatabase, 0, maxPoolSize),
+		dbs:   make([]db.TestDatabase, 0, maxPoolSize),
 		ready: make(dbIDMap),
 		dirty: make(dbIDMap),
 	}
@@ -58,7 +60,7 @@ func popFirstKey(idMap dbIDMap) int {
 	return id
 }
 
-func (p *DBPool) GetDB(ctx context.Context, hash string) (db TestDatabase, isDirty bool, err error) {
+func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, isDirty bool, err error) {
 	var pool *dbHashPool
 
 	{
@@ -104,7 +106,7 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db TestDatabase, isDir
 		return
 	}
 
-	// pick a ready test database from the index
+	// pick a ready test db.Database from the index
 	if len(pool.dbs) <= index {
 		err = ErrInvalidIndex
 		return
@@ -116,7 +118,7 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db TestDatabase, isDir
 
 }
 
-func (p *DBPool) AddTestDatabase(ctx context.Context, template TemplateConfig, dbNamePrefix string, initFunc func(TestDatabase) error) (TestDatabase, error) {
+func (p *DBPool) AddTestDatabase(ctx context.Context, template db.Database, dbNamePrefix string, initFunc func(db.TestDatabase) error) (db.TestDatabase, error) {
 	var pool *dbHashPool
 	hash := template.TemplateHash
 
@@ -143,12 +145,12 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, template TemplateConfig, d
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
 	if index >= p.maxPoolSize {
-		return TestDatabase{}, ErrPoolFull
+		return db.TestDatabase{}, ErrPoolFull
 	}
 
 	// initalization of a new DB
-	newTestDB := TestDatabase{
-		Database: Database{
+	newTestDB := db.TestDatabase{
+		Database: db.Database{
 			TemplateHash: template.TemplateHash,
 			Config:       template.Config,
 		},
@@ -159,7 +161,7 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, template TemplateConfig, d
 	newTestDB.Database.Config.Database = dbName
 
 	if err := initFunc(newTestDB); err != nil {
-		return TestDatabase{}, err
+		return db.TestDatabase{}, err
 	}
 
 	// add new test DB to the pool
