@@ -840,7 +840,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 
 	originalID := test.ID
 
-	if err := m.ClearTrackedTestDatabases(hash); err != nil {
+	if err := m.ClearTrackedTestDatabases(ctx, hash); err != nil {
 		t.Fatalf("failed to clear tracked test databases: %v", err)
 	}
 

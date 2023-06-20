@@ -70,8 +70,6 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, is
 		defer p.mutex.Unlock()
 
 		pool = p.pools[hash]
-		// DBPool unlocked
-		// !
 
 		if pool == nil {
 			// no such pool
@@ -82,6 +80,9 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, is
 		// !
 		// dbHashPool locked
 		pool.Lock()
+
+		// DBPool unlocked
+		// !
 	}
 	defer pool.Unlock()
 
@@ -191,8 +192,6 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 		}
 
 		pool = p.pools[hash]
-		// DBPool unlocked
-		// !
 
 		if pool == nil {
 			// no such pool
@@ -202,6 +201,9 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 		// !
 		// dbHashPool locked
 		pool.Lock()
+
+		// DBPool unlocked
+		// !
 	}
 	defer pool.Unlock()
 
@@ -217,4 +219,62 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	pool.dirty[id] = true
 
 	return nil
+}
+
+func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc func(db.TestDatabase) error) error {
+
+	// !
+	// DBPool locked
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	pool := p.pools[hash]
+
+	if pool == nil {
+		// no such pool
+		return ErrUnknownHash
+	}
+
+	return p.removeAllFromPool(pool, removeFunc)
+	// DBPool unlocked
+	// !
+}
+
+func (p *DBPool) removeAllFromPool(pool *dbHashPool, removeFunc func(db.TestDatabase) error) error {
+	pool.Lock()
+	defer pool.Unlock()
+
+	// remove from back to be able to repeat operation in case of error
+	for id := len(pool.dbs) - 1; id >= 0; id-- {
+		db := pool.dbs[id]
+
+		if err := removeFunc(db); err != nil {
+			return err
+		}
+
+		pool.dbs = pool.dbs[:len(pool.dbs)-1]
+		delete(pool.dirty, id)
+		delete(pool.ready, id)
+	}
+
+	return nil
+}
+
+func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
+	// !
+	// DBPool locked
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	for hash, pool := range p.pools {
+		if err := p.removeAllFromPool(pool, removeFunc); err != nil {
+			return err
+		}
+
+		delete(p.pools, hash)
+	}
+
+	return nil
+	// DBPool unlocked
+	// !
 }

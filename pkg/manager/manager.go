@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"runtime/trace"
 	"sync"
-	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/pool"
@@ -309,66 +308,32 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 	return m.pool.ReturnTestDatabase(ctx, hash, id)
 }
 
-func (m *Manager) ClearTrackedTestDatabases(hash string) error {
+func (m *Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) error {
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
 
-	m.templateMutex.RLock()
-	template, ok := m.templates[hash]
-	m.templateMutex.RUnlock()
-
-	if !ok {
-		return ErrTemplateNotFound
+	removeFunc := func(testDB db.TestDatabase) error {
+		return m.dropDatabase(ctx, testDB.Config.Database)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := template.WaitUntilReady(ctx); err != nil {
-		cancel()
-		return err
-	}
-	cancel()
-
-	template.Lock()
-	defer template.Unlock()
-
-	for i := range template.testDatabases {
-		template.testDatabases[i] = nil
-	}
-
-	template.testDatabases = make([]*TestDatabase, 0)
-	template.nextTestID = 0
-
-	return nil
+	return m.pool.RemoveAllWithHash(ctx, hash, removeFunc)
 }
 
-func (m *Manager) ResetAllTracking() error {
+func (m *Manager) ResetAllTracking(ctx context.Context) error {
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
 
-	m.templateMutex.Lock()
-	defer m.templateMutex.Unlock()
+	// remove all templates to disallow any new test DB creation
+	m.templatesX.RemoveAll(ctx)
 
-	for hash := range m.templates {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := m.templates[hash].WaitUntilReady(ctx); err != nil {
-			cancel()
-			continue
-		}
-		cancel()
-
-		m.templates[hash].Lock()
-		for i := range m.templates[hash].testDatabases {
-			m.templates[hash].testDatabases[i] = nil
-		}
-		m.templates[hash].Unlock()
-
-		delete(m.templates, hash)
-		// m.templates[hash] = nil
+	removeFunc := func(testDB db.TestDatabase) error {
+		return m.dropDatabase(ctx, testDB.Config.Database)
 	}
-
-	m.templates = map[string]*TemplateDatabase{}
+	if err := m.pool.RemoveAll(ctx, removeFunc); err != nil {
+		return err
+	}
 
 	return nil
 }

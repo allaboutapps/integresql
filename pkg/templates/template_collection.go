@@ -59,8 +59,8 @@ func (tc *Collection) Get(ctx context.Context, hash string) (template *Template,
 	reg := trace.StartRegion(ctx, "get_template_lock")
 	defer reg.End()
 
-	tc.collMutex.Lock()
-	defer tc.collMutex.Unlock()
+	tc.collMutex.RLock()
+	defer tc.collMutex.RUnlock()
 
 	template, ok := tc.templates[hash]
 	if !ok {
@@ -72,4 +72,18 @@ func (tc *Collection) Get(ctx context.Context, hash string) (template *Template,
 
 func (tc *Collection) RemoveUnsafe(ctx context.Context, hash string) {
 	delete(tc.templates, hash)
+}
+
+func (tc *Collection) RemoveAll(ctx context.Context) {
+	reg := trace.StartRegion(ctx, "get_template_lock")
+	defer reg.End()
+
+	tc.collMutex.Lock()
+	defer tc.collMutex.Unlock()
+
+	for hash, template := range tc.templates {
+		template.SetState(ctx, TemplateStateDiscarded)
+
+		delete(tc.templates, hash)
+	}
 }
