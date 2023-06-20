@@ -20,8 +20,8 @@ type Template struct {
 	db.Database
 	state TemplateState
 
-	cond *sync.Cond
-	lock sync.RWMutex
+	cond  *sync.Cond
+	mutex sync.RWMutex
 }
 
 func NewTemplate(database db.Database) *Template {
@@ -29,14 +29,14 @@ func NewTemplate(database db.Database) *Template {
 		Database: database,
 		state:    TemplateStateInit,
 	}
-	t.cond = sync.NewCond(&t.lock)
+	t.cond = sync.NewCond(&t.mutex)
 
 	return t
 }
 
 func (t *Template) GetState(ctx context.Context) TemplateState {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
 
 	return t.state
 }
@@ -46,8 +46,8 @@ func (t *Template) SetState(ctx context.Context, newState TemplateState) {
 		return
 	}
 
-	t.lock.Lock()
-	defer t.lock.Unlock()
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
 	t.state = newState
 
 	t.cond.Broadcast()

@@ -10,16 +10,16 @@ import (
 )
 
 var (
-	ErrNoPool       = errors.New("no db.Database exists for this hash")
+	ErrUnknownHash  = errors.New("no db.Database exists for this hash")
 	ErrPoolFull     = errors.New("database pool is full")
-	ErrNotInPool    = errors.New("database is not in the pool")
+	ErrUnknownID    = errors.New("database is not in the pool")
 	ErrNoDBReady    = errors.New("no db.Database is currently ready, perhaps you need to create one")
 	ErrInvalidIndex = errors.New("invalid db.Database index (ID)")
 )
 
 type DBPool struct {
 	pools map[string]*dbHashPool // map[hash]
-	sync.RWMutex
+	mutex sync.RWMutex
 
 	maxPoolSize int
 }
@@ -66,23 +66,23 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, is
 	{
 		// !
 		// DBPool locked
-		p.Lock()
-		defer p.Unlock()
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
 
 		pool = p.pools[hash]
 		// DBPool unlocked
 		// !
-	}
 
-	if pool == nil {
-		// no such pool
-		err = ErrNoPool
-		return
-	}
+		if pool == nil {
+			// no such pool
+			err = ErrUnknownHash
+			return
+		}
 
-	// !
-	// dbHashPool locked
-	pool.Lock()
+		// !
+		// dbHashPool locked
+		pool.Lock()
+	}
 	defer pool.Unlock()
 
 	var index int
@@ -125,8 +125,8 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, template db.Database, dbNa
 	{
 		// !
 		// DBPool locked
-		p.Lock()
-		defer p.Unlock()
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
 
 		pool = p.pools[hash]
 		if pool == nil {
@@ -181,8 +181,8 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	{
 		// !
 		// DBPool locked
-		p.Lock()
-		defer p.Unlock()
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
 
 		// needs to be checked inside locked region
 		// because we access maxPoolSize
@@ -193,23 +193,23 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 		pool = p.pools[hash]
 		// DBPool unlocked
 		// !
-	}
 
-	if pool == nil {
-		// no such pool
-		return ErrNoPool
-	}
+		if pool == nil {
+			// no such pool
+			return ErrUnknownHash
+		}
 
-	// !
-	// dbHashPool locked
-	pool.Lock()
+		// !
+		// dbHashPool locked
+		pool.Lock()
+	}
 	defer pool.Unlock()
 
 	// check if pool has been already returned
 	if pool.dirty != nil && len(pool.dirty) > 0 {
 		exists := pool.dirty[id]
 		if exists {
-			return ErrNotInPool
+			return ErrUnknownID
 		}
 	}
 

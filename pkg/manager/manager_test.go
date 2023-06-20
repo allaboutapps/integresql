@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -298,10 +297,6 @@ func TestManagerGetTestDatabase(t *testing.T) {
 		t.Fatalf("failed to get test database: %v", err)
 	}
 
-	if !test.Ready(ctx) {
-		t.Error("test database is flagged not ready")
-	}
-
 	verifyTestDB(t, test)
 }
 
@@ -356,21 +351,8 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 
 	testCh := make(chan error, 1)
 	go func() {
-		test, err := m.GetTestDatabase(ctx, hash)
-		if err != nil {
-			testCh <- err
-			return
-		}
-
-		if !test.Ready(ctx) {
-			testCh <- errors.New("test database is flagged as not ready")
-			return
-		}
-		if !test.Dirty(ctx) {
-			testCh <- errors.New("test database is not flagged as dirty")
-		}
-
-		testCh <- nil
+		_, err := m.GetTestDatabase(ctx, hash)
+		testCh <- err
 	}()
 
 	populateTemplateDB(t, template)

@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"time"
+
 	"github.com/allaboutapps/integresql/pkg/util"
 )
 
@@ -15,6 +17,7 @@ type ManagerConfig struct {
 	TestDatabaseOwnerPassword   string
 	TestDatabaseInitialPoolSize int
 	TestDatabaseMaxPoolSize     int
+	TestDatabaseWaitTimeout     time.Duration
 }
 
 func DefaultManagerConfigFromEnv() ManagerConfig {
@@ -51,5 +54,6 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseOwnerPassword:   util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
 		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
 		TestDatabaseMaxPoolSize:     util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
+		TestDatabaseWaitTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB READY_WAIT_TIMEOUT", 1000)),
 	}
 }

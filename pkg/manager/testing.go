@@ -106,7 +106,7 @@ func populateTemplateDB(t *testing.T, template db.Database) {
 	}
 }
 
-func verifyTestDB(t *testing.T, test *TestDatabase) {
+func verifyTestDB(t *testing.T, test db.TestDatabase) {
 	t.Helper()
 
 	db, err := sql.Open("postgres", test.Config.ConnectionString())
@@ -142,19 +142,6 @@ func verifyTestDB(t *testing.T, test *TestDatabase) {
 
 func getTestDB(ctx context.Context, errs chan<- error, m *Manager) {
 
-	db, err := m.GetTestDatabase(context.Background(), "hashinghash")
-	if err != nil {
-		errs <- err
-		return
-	}
-
-	if !db.Ready(ctx) {
-		errs <- errors.New("test database is marked as not ready")
-		return
-	}
-	if !db.Dirty(ctx) {
-		errs <- errors.New("test database is not marked as dirty")
-	}
-
-	errs <- nil
+	_, err := m.GetTestDatabase(context.Background(), "hashinghash")
+	errs <- err
 }

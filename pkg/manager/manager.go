@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime/trace"
-	"sort"
 	"sync"
 	"time"
 
@@ -20,6 +19,7 @@ var (
 	ErrManagerNotReady            = errors.New("manager not ready")
 	ErrTemplateAlreadyInitialized = errors.New("template is already initialized")
 	ErrTemplateNotFound           = errors.New("template not found")
+	ErrInvalidTemplateState       = errors.New("unexpected template state")
 	ErrTestNotFound               = errors.New("test database not found")
 )
 
@@ -30,6 +30,7 @@ type Manager struct {
 	templateMutex sync.RWMutex
 	wg            sync.WaitGroup
 
+	closeChan  chan bool
 	templatesX *templates.Collection
 	pool       *pool.DBPool
 }
@@ -86,6 +87,8 @@ func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
 	if m.db == nil {
 		return errors.New("manager is not connected")
 	}
+
+	m.closeChan <- true
 
 	c := make(chan struct{})
 	go func() {
@@ -164,6 +167,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	}
 
 	added, unlock := m.templatesX.Push(ctx, hash, templateConfig)
+	// unlock template collection only after the template is actually initalized in the DB
 	defer unlock()
 
 	if !added {
@@ -193,8 +197,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		return ErrManagerNotReady
 	}
 
-	template, found, unlock := m.templatesX.Pop(ctx, hash)
-	defer unlock()
+	template, found := m.templatesX.Pop(ctx, hash)
 	dbName := template.Config.Database
 
 	if !found {
@@ -208,101 +211,83 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		if !exists {
 			return ErrTemplateNotFound
 		}
+	} else {
+		template.SetState(ctx, templates.TemplateStateDiscarded)
 	}
 
 	return m.dropDatabase(ctx, dbName)
 }
 
-func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (*TemplateDatabase, error) {
+func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.Database, error) {
 	ctx, task := trace.NewTask(ctx, "finalize_template_db")
 	defer task.End()
 
 	if !m.Ready() {
-		return nil, ErrManagerNotReady
+		return db.Database{}, ErrManagerNotReady
 	}
 
-	reg := trace.StartRegion(ctx, "get_template_lock")
-	m.templateMutex.Lock()
-	defer m.templateMutex.Unlock()
-	reg.End()
-
-	template, ok := m.templates[hash]
-
-	// We don't allow finalizing NEVER initialized database by integresql!
-	if !ok {
-		return nil, ErrTemplateNotFound
+	template, found := m.templatesX.Get(ctx, hash)
+	if !found {
+		return db.Database{}, ErrTemplateNotFound
 	}
 
-	state := template.State(ctx)
+	state := template.GetState(ctx)
 
 	// early bailout if we are already ready (multiple calls)
-	if state == databaseStateReady {
-		return template, nil
+	if state == templates.TemplateStateReady {
+		return template.Database, nil
 	}
 
 	// Disallow transition from discarded to ready
-	if state == databaseStateDiscarded {
-		return nil, ErrDatabaseDiscarded
+	if state == templates.TemplateStateDiscarded {
+		return db.Database{}, ErrDatabaseDiscarded
 	}
 
-	template.FlagAsReady(ctx)
+	template.SetState(ctx, templates.TemplateStateReady)
 
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		m.addTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
-	}()
+	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
-	return template, nil
+	return template.Database, nil
 }
 
-func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (*TestDatabase, error) {
+func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "get_test_db")
 	defer task.End()
 
 	if !m.Ready() {
-		return nil, ErrManagerNotReady
+		return db.TestDatabase{}, ErrManagerNotReady
 	}
 
-	reg := trace.StartRegion(ctx, "get_template_lock")
-	m.templateMutex.RLock()
-	reg.End()
-	template, ok := m.templates[hash]
-	m.templateMutex.RUnlock()
-
-	if !ok {
-		return nil, ErrTemplateNotFound
+	template, found := m.templatesX.Get(ctx, hash)
+	if !found {
+		return db.TestDatabase{}, ErrTemplateNotFound
 	}
 
-	if err := template.WaitUntilReady(ctx); err != nil {
-		return nil, err
+	// if the template has been discarded/not initalized yet,
+	// no DB should be returned, even if already in the pool
+	state := template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout)
+	if state != templates.TemplateStateReady {
+		return db.TestDatabase{}, ErrInvalidTemplateState
 	}
 
-	template.Lock()
-	defer template.Unlock()
-
-	var testDB *TestDatabase
-	for _, db := range template.testDatabases {
-		if db.ReadyForTest(ctx) {
-			testDB = db
-			break
+	testDB, dirty, err := m.pool.GetDB(ctx, template.TemplateHash)
+	if err != nil {
+		if !errors.Is(err, pool.ErrNoDBReady) {
+			// internal error occurred, return directly
+			return db.TestDatabase{}, err
 		}
+
+		// no DB is ready, we can try to add a new DB is pool is not full
+		return m.createTestDatabaseFromTemplate(ctx, template)
 	}
 
-	if testDB == nil {
-		var err error
-		testDB, err = m.createNextTestDatabase(ctx, template)
-		if err != nil {
-			return nil, err
-		}
+	// if no error occurred, a testDB has been found
+	if !dirty {
+		return testDB, nil
 	}
 
-	testDB.FlagAsDirty(ctx)
-
-	m.wg.Add(1)
-	go m.addTestDatabasesInBackground(template, 1)
-
-	return testDB, nil
+	// clean it, if it's dirty, before returning it to the user
+	return m.cleanTestDatabase(ctx, testDB, m.makeTemplateDatabaseName(testDB.TemplateHash))
 }
 
 func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
@@ -310,63 +295,18 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 		return ErrManagerNotReady
 	}
 
-	m.templateMutex.RLock()
-	template, ok := m.templates[hash]
-	m.templateMutex.RUnlock()
-
-	if !ok {
+	// check if the template exists and is 'ready'
+	template, found := m.templatesX.Get(ctx, hash)
+	if !found {
 		return ErrTemplateNotFound
 	}
 
-	if err := template.WaitUntilReady(ctx); err != nil {
-		return err
+	if template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateReady {
+		return ErrInvalidTemplateState
 	}
 
-	template.Lock()
-	defer template.Unlock()
-
-	found := false
-	for _, db := range template.testDatabases {
-		if db.ID == id {
-			found = true
-			db.FlagAsClean(ctx)
-			break
-		}
-	}
-
-	if !found {
-		dbName := fmt.Sprintf("%s_%s_%s_%03d", m.config.DatabasePrefix, m.config.TestDatabasePrefix, hash, id)
-		exists, err := m.checkDatabaseExists(ctx, dbName)
-		if err != nil {
-			return err
-		}
-
-		if !exists {
-			return ErrTestNotFound
-		}
-
-		db := &TestDatabase{
-			Database: Database{
-				TemplateHash: hash,
-				Config: DatabaseConfig{
-					Host:     m.config.ManagerDatabaseConfig.Host,
-					Port:     m.config.ManagerDatabaseConfig.Port,
-					Username: m.config.TestDatabaseOwner,
-					Password: m.config.TestDatabaseOwnerPassword,
-					Database: dbName,
-				},
-				state: databaseStateReady,
-				c:     make(chan struct{}),
-			},
-			ID:    id,
-			dirty: false,
-		}
-
-		template.testDatabases = append(template.testDatabases, db)
-		sort.Sort(ByID(template.testDatabases))
-	}
-
-	return nil
+	// template is ready, we can return the testDB to the pool
+	return m.pool.ReturnTestDatabase(ctx, hash, id)
 }
 
 func (m *Manager) ClearTrackedTestDatabases(hash string) error {
@@ -476,72 +416,57 @@ func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owne
 	return m.createDatabase(ctx, dbName, owner, template)
 }
 
-// Creates a new test database for the template and increments the next ID.
-// ! ATTENTION: this function assumes `template` has already been LOCKED by its caller and will NOT synchronize access again !
-// The newly created database object is returned as well as added to the template's DB list automatically.
-func (m *Manager) createNextTestDatabase(ctx context.Context, template *TemplateDatabase) (*TestDatabase, error) {
-	dbName := fmt.Sprintf("%s_%s_%s_%03d", m.config.DatabasePrefix, m.config.TestDatabasePrefix, template.TemplateHash, template.nextTestID)
-
-	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.TestDatabaseOwner, template.Config.Database); err != nil {
-		return nil, err
+// cleanTestDatabase recreates a dirty DB obtained from the pool.
+// It is created according to the given template.
+func (m *Manager) cleanTestDatabase(ctx context.Context, testDB db.TestDatabase, templateDBName string) (db.TestDatabase, error) {
+	if err := m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateDBName); err != nil {
+		return db.TestDatabase{}, err
 	}
 
-	testDB := &TestDatabase{
-		Database: Database{
-			TemplateHash: template.TemplateHash,
-			Config: DatabaseConfig{
-				Host:     m.config.ManagerDatabaseConfig.Host,
-				Port:     m.config.ManagerDatabaseConfig.Port,
-				Username: m.config.TestDatabaseOwner,
-				Password: m.config.TestDatabaseOwnerPassword,
-				Database: dbName,
-			},
-			state: databaseStateReady,
-			c:     make(chan struct{}),
-		},
-		ID:    template.nextTestID,
-		dirty: false,
+	return testDB, nil
+}
+
+// createTestDatabaseFromTemplate adds a new test database in the pool (increasing its size) basing on the given template.
+// It waits until the template is ready.
+func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) (db.TestDatabase, error) {
+	if template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateReady {
+		// if the state changed in the meantime, return
+		return db.TestDatabase{}, ErrInvalidTemplateState
 	}
 
-	template.testDatabases = append(template.testDatabases, testDB)
-	template.nextTestID++
+	dbNamePrefix := m.makeTestDatabasePrefix(template.TemplateHash)
+	testDB, err := m.pool.AddTestDatabase(ctx, template.Database, dbNamePrefix, func(testDB db.TestDatabase) error {
+		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, template.Config.Database)
+	})
 
-	if template.nextTestID > m.config.TestDatabaseMaxPoolSize {
-		i := 0
-		for idx, db := range template.testDatabases {
-			if db.Dirty(ctx) {
-				i = idx
-				break
-			}
-		}
-
-		if err := m.dropDatabase(ctx, template.testDatabases[i].Config.Database); err != nil {
-			return nil, err
-		}
-
-		// Delete while preserving order, avoiding memory leaks due to points in accordance to: https://github.com/golang/go/wiki/SliceTricks
-		if i < len(template.testDatabases)-1 {
-			copy(template.testDatabases[i:], template.testDatabases[i+1:])
-		}
-		template.testDatabases[len(template.testDatabases)-1] = nil
-		template.testDatabases = template.testDatabases[:len(template.testDatabases)-1]
+	if err != nil {
+		return db.TestDatabase{}, err
 	}
 
 	return testDB, nil
 }
 
 // Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.
-// This function will lock `template` until all requested test DBs have been created and signal the WaitGroup about completion afterwards.
-func (m *Manager) addTestDatabasesInBackground(template *TemplateDatabase, count int) {
+func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Template, count int) {
 
-	template.Lock()
-	defer template.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
 
-	ctx := context.Background()
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		defer cancel()
 
-	for i := 0; i < count; i++ {
-		// TODO log error somewhere instead of silently swallowing it?
-		_, _ = m.createNextTestDatabase(ctx, template)
+		for i := 0; i < count; i++ {
+			// TODO log error somewhere instead of silently swallowing it?
+			_, _ = m.createTestDatabaseFromTemplate(ctx, template)
+		}
+	}()
+
+	select {
+	case <-m.closeChan:
+		// manager was requested to stop
+		cancel()
+	case <-ctx.Done():
 	}
 }
 

@@ -40,22 +40,19 @@ func (tc *Collection) Push(ctx context.Context, hash string, template db.Databas
 	return true, unlock
 }
 
-func (tc *Collection) Pop(ctx context.Context, hash string) (template *Template, found bool, unlock Unlock) {
+func (tc *Collection) Pop(ctx context.Context, hash string) (template *Template, found bool) {
 	reg := trace.StartRegion(ctx, "get_template_lock")
+	defer reg.End()
 	tc.collMutex.Lock()
-
-	unlock = func() {
-		tc.collMutex.Unlock()
-		reg.End()
-	}
+	defer tc.collMutex.Unlock()
 
 	template, ok := tc.templates[hash]
 	if !ok {
-		return nil, false, unlock
+		return nil, false
 	}
 
 	delete(tc.templates, hash)
-	return template, true, unlock
+	return template, true
 }
 
 func (tc *Collection) Get(ctx context.Context, hash string) (template *Template, found bool) {
