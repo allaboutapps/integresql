@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,7 +32,7 @@ func TestManagerConnectError(t *testing.T) {
 	t.Parallel()
 
 	m := New(ManagerConfig{
-		ManagerDatabaseConfig: DatabaseConfig{
+		ManagerDatabaseConfig: db.DatabaseConfig{
 			Host:     "definitelydoesnotexist",
 			Port:     2345,
 			Username: "definitelydoesnotexist",

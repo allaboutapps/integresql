@@ -15,6 +15,7 @@ import (
 	"path"
 
 	"github.com/allaboutapps/integresql/pkg/manager"
+	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/allaboutapps/integresql/pkg/util"
 	_ "github.com/lib/pq"
 )
@@ -219,7 +220,7 @@ func (c *Client) GetTestDatabase(ctx context.Context, hash string) (TestDatabase
 	case http.StatusNotFound:
 		return test, manager.ErrTemplateNotFound
 	case http.StatusGone:
-		return test, manager.ErrDatabaseDiscarded
+		return test, pool.ErrUnknownID
 	case http.StatusServiceUnavailable:
 		return test, manager.ErrManagerNotReady
 	default:

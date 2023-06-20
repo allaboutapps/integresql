@@ -3,11 +3,12 @@ package manager
 import (
 	"time"
 
+	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/util"
 )
 
 type ManagerConfig struct {
-	ManagerDatabaseConfig    DatabaseConfig
+	ManagerDatabaseConfig    db.DatabaseConfig
 	TemplateDatabaseTemplate string
 
 	DatabasePrefix              string
@@ -24,7 +25,7 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 
 	return ManagerConfig{
 
-		ManagerDatabaseConfig: DatabaseConfig{
+		ManagerDatabaseConfig: db.DatabaseConfig{
 
 			Host: util.GetEnv("INTEGRESQL_PGHOST", util.GetEnv("PGHOST", "127.0.0.1")),
 			Port: util.GetEnvAsInt("INTEGRESQL_PGPORT", util.GetEnvAsInt("PGPORT", 5432)),

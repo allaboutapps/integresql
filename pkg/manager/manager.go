@@ -19,15 +19,13 @@ var (
 	ErrTemplateAlreadyInitialized = errors.New("template is already initialized")
 	ErrTemplateNotFound           = errors.New("template not found")
 	ErrInvalidTemplateState       = errors.New("unexpected template state")
-	ErrTestNotFound               = errors.New("test database not found")
+	ErrTemplateDiscarded          = errors.New("template is discarded, can't be used")
 )
 
 type Manager struct {
-	config        ManagerConfig
-	db            *sql.DB
-	templates     map[string]*TemplateDatabase
-	templateMutex sync.RWMutex
-	wg            sync.WaitGroup
+	config ManagerConfig
+	db     *sql.DB
+	wg     sync.WaitGroup
 
 	closeChan  chan bool
 	templatesX *templates.Collection
@@ -38,7 +36,6 @@ func New(config ManagerConfig) *Manager {
 	m := &Manager{
 		config:     config,
 		db:         nil,
-		templates:  map[string]*TemplateDatabase{},
 		wg:         sync.WaitGroup{},
 		templatesX: templates.NewCollection(),
 		pool:       pool.NewDBPool(config.TestDatabaseMaxPoolSize),
@@ -239,7 +236,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 
 	// Disallow transition from discarded to ready
 	if state == templates.TemplateStateDiscarded {
-		return db.Database{}, ErrDatabaseDiscarded
+		return db.Database{}, ErrTemplateDiscarded
 	}
 
 	template.SetState(ctx, templates.TemplateStateReady)
