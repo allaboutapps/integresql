@@ -61,30 +61,28 @@ func popFirstKey(idMap dbIDMap) int {
 }
 
 func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, isDirty bool, err error) {
-	var pool *dbHashPool
 
-	{
-		// !
-		// DBPool locked
-		p.mutex.Lock()
-		defer p.mutex.Unlock()
+	// !
+	// DBPool locked
+	p.mutex.Lock()
 
-		pool = p.pools[hash]
+	pool := p.pools[hash]
 
-		if pool == nil {
-			// no such pool
-			err = ErrUnknownHash
-			return
-		}
-
-		// !
-		// dbHashPool locked
-		pool.Lock()
-
-		// DBPool unlocked
-		// !
+	if pool == nil {
+		// no such pool
+		p.mutex.Unlock()
+		err = ErrUnknownHash
+		return
 	}
+
+	// !
+	// dbHashPool locked before unlocking DBPool
+	pool.Lock()
 	defer pool.Unlock()
+
+	p.mutex.Unlock()
+	// DBPool unlocked
+	// !
 
 	var index int
 	if len(pool.ready) > 0 {
@@ -120,28 +118,26 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, is
 }
 
 func (p *DBPool) AddTestDatabase(ctx context.Context, template db.Database, dbNamePrefix string, initFunc func(db.TestDatabase) error) (db.TestDatabase, error) {
-	var pool *dbHashPool
 	hash := template.TemplateHash
 
-	{
-		// !
-		// DBPool locked
-		p.mutex.Lock()
-		defer p.mutex.Unlock()
+	// !
+	// DBPool locked
+	p.mutex.Lock()
 
-		pool = p.pools[hash]
-		if pool == nil {
-			pool = newDBHashPool(p.maxPoolSize)
-			p.pools[hash] = pool
-		}
-		// DBPool unlocked
-		// !
+	pool := p.pools[hash]
+	if pool == nil {
+		pool = newDBHashPool(p.maxPoolSize)
+		p.pools[hash] = pool
 	}
 
 	// !
 	// dbHashPool locked
 	pool.Lock()
 	defer pool.Unlock()
+
+	p.mutex.Unlock()
+	// DBPool unlocked
+	// !
 
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
@@ -177,35 +173,34 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, template db.Database, dbNa
 }
 
 func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
-	var pool *dbHashPool
 
-	{
-		// !
-		// DBPool locked
-		p.mutex.Lock()
-		defer p.mutex.Unlock()
+	// !
+	// DBPool locked
+	p.mutex.Lock()
 
-		// needs to be checked inside locked region
-		// because we access maxPoolSize
-		if id < 0 || id >= p.maxPoolSize {
-			return ErrInvalidIndex
-		}
-
-		pool = p.pools[hash]
-
-		if pool == nil {
-			// no such pool
-			return ErrUnknownHash
-		}
-
-		// !
-		// dbHashPool locked
-		pool.Lock()
-
-		// DBPool unlocked
-		// !
+	// needs to be checked inside locked region
+	// because we access maxPoolSize
+	if id < 0 || id >= p.maxPoolSize {
+		p.mutex.Unlock()
+		return ErrInvalidIndex
 	}
+
+	pool := p.pools[hash]
+
+	if pool == nil {
+		// no such pool
+		p.mutex.Unlock()
+		return ErrUnknownHash
+	}
+
+	// !
+	// dbHashPool locked
+	pool.Lock()
 	defer pool.Unlock()
+
+	p.mutex.Unlock()
+	// DBPool unlocked
+	// !
 
 	// check if pool has been already returned
 	if pool.dirty != nil && len(pool.dirty) > 0 {
@@ -219,6 +214,8 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	pool.dirty[id] = true
 
 	return nil
+	// dbHashPool unlocked
+	// !
 }
 
 func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc func(db.TestDatabase) error) error {
@@ -241,6 +238,8 @@ func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc 
 }
 
 func (p *DBPool) removeAllFromPool(pool *dbHashPool, removeFunc func(db.TestDatabase) error) error {
+	// !
+	// dbHashPool locked
 	pool.Lock()
 	defer pool.Unlock()
 
@@ -258,6 +257,8 @@ func (p *DBPool) removeAllFromPool(pool *dbHashPool, removeFunc func(db.TestData
 	}
 
 	return nil
+	// dbHashPool unlocked
+	// !
 }
 
 func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
