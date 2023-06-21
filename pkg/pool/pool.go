@@ -51,55 +51,12 @@ type existingDB struct {
 
 type dbHashPool struct {
 	dbs   []existingDB
-	ready chan int // ID; initalized DBs according to a template, ready to pick them up
-	dirty chan int // ID; returned DBs, need to be initalized again to reuse them
+	ready chan int // ID of initalized DBs according to a template, ready to pick them up
+	dirty chan int // ID of returned DBs, need to be initalized again to reuse them
 
 	recreateDB RecreateDBFunc
 	templateDB db.Database
 	sync.RWMutex
-}
-
-func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Database) *dbHashPool {
-	return &dbHashPool{
-		dbs:        make([]existingDB, 0, maxPoolSize),
-		ready:      make(chan int, maxPoolSize),
-		dirty:      make(chan int, maxPoolSize),
-		recreateDB: recreateDB,
-		templateDB: templateDB,
-	}
-}
-
-func (h *dbHashPool) workerCleanUpDirtyDB() {
-	ctx := context.Background()
-	templateName := h.templateDB.Config.Database
-
-	for dirtyID := range h.dirty {
-		h.RLock()
-		if dirtyID >= len(h.dbs) {
-			// sanity check, should never happen
-			h.RUnlock()
-			continue
-		}
-		testDB := h.dbs[dirtyID]
-		h.RUnlock()
-
-		if testDB.state != dbStateDirty {
-			continue
-		}
-
-		if err := h.recreateDB(ctx, testDB.TestDatabase, templateName); err != nil {
-			// TODO anna: error handling
-			fmt.Printf("integresql: failed to clean up DB: %v\n", err)
-			continue
-		}
-
-		h.Lock()
-		testDB.state = dbStateReady
-		h.dbs[dirtyID] = testDB
-		h.Unlock()
-
-		h.ready <- testDB.ID
-	}
 }
 
 func (p *DBPool) Stop() {
@@ -163,68 +120,6 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 	pool.dbs[index] = givenTestDB
 
 	return givenTestDB.TestDatabase, nil
-	// dbHashPool unlocked
-	// !
-}
-
-func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
-	// !
-	// dbHashPool locked
-	pool.Lock()
-	defer pool.Unlock()
-
-	// get index of a next test DB - its ID
-	index := len(pool.dbs)
-	if index == cap(pool.dbs) {
-		return db.TestDatabase{}, ErrPoolFull
-	}
-
-	// initalization of a new DB
-	newTestDB := db.TestDatabase{
-		Database: db.Database{
-			TemplateHash: pool.templateDB.TemplateHash,
-			Config:       pool.templateDB.Config,
-		},
-		ID: index,
-	}
-	// db name has an ID in suffix
-	templateName := pool.templateDB.Config.Database
-	dbName := fmt.Sprintf("%s_%03d", templateName, index)
-	newTestDB.Database.Config.Database = dbName
-
-	if err := pool.recreateDB(ctx, newTestDB, templateName); err != nil {
-		return db.TestDatabase{}, err
-	}
-
-	// add new test DB to the pool
-	pool.dbs = append(pool.dbs, existingDB{state: dbStateReady, TestDatabase: newTestDB})
-
-	return newTestDB, nil
-	// dbHashPool unlocked
-	// !
-}
-
-func (pool *dbHashPool) removeAllFromPool(removeFunc func(db.TestDatabase) error) error {
-	// close the dirty channel to stop the worker
-	close(pool.dirty)
-
-	// !
-	// dbHashPool locked
-	pool.Lock()
-	defer pool.Unlock()
-
-	// remove from back to be able to repeat operation in case of error
-	for id := len(pool.dbs) - 1; id >= 0; id-- {
-		testDB := pool.dbs[id].TestDatabase
-
-		if err := removeFunc(testDB); err != nil {
-			return err
-		}
-
-		pool.dbs = pool.dbs[:len(pool.dbs)-1]
-	}
-
-	return nil
 	// dbHashPool unlocked
 	// !
 }
@@ -345,7 +240,7 @@ func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc 
 		return ErrUnknownHash
 	}
 
-	if err := pool.removeAllFromPool(removeFunc); err != nil {
+	if err := pool.removeAll(removeFunc); err != nil {
 		return err
 	}
 
@@ -372,7 +267,7 @@ func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase)
 	defer p.mutex.Unlock()
 
 	for hash, pool := range p.pools {
-		if err := pool.removeAllFromPool(removeFunc); err != nil {
+		if err := pool.removeAll(removeFunc); err != nil {
 			return err
 		}
 
@@ -381,5 +276,110 @@ func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase)
 
 	return nil
 	// DBPool unlocked
+	// !
+}
+
+func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Database) *dbHashPool {
+	return &dbHashPool{
+		dbs:        make([]existingDB, 0, maxPoolSize),
+		ready:      make(chan int, maxPoolSize),
+		dirty:      make(chan int, maxPoolSize),
+		recreateDB: recreateDB,
+		templateDB: templateDB,
+	}
+}
+
+func (pool *dbHashPool) workerCleanUpDirtyDB() {
+	ctx := context.Background()
+	templateName := pool.templateDB.Config.Database
+
+	for dirtyID := range pool.dirty {
+		pool.RLock()
+		if dirtyID >= len(pool.dbs) {
+			// sanity check, should never happen
+			pool.RUnlock()
+			continue
+		}
+		testDB := pool.dbs[dirtyID]
+		pool.RUnlock()
+
+		if testDB.state != dbStateDirty {
+			continue
+		}
+
+		if err := pool.recreateDB(ctx, testDB.TestDatabase, templateName); err != nil {
+			// TODO anna: error handling
+			fmt.Printf("integresql: failed to clean up DB: %v\n", err)
+			continue
+		}
+
+		pool.Lock()
+		testDB.state = dbStateReady
+		pool.dbs[dirtyID] = testDB
+		pool.Unlock()
+
+		pool.ready <- testDB.ID
+	}
+}
+
+func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
+	// !
+	// dbHashPool locked
+	pool.Lock()
+	defer pool.Unlock()
+
+	// get index of a next test DB - its ID
+	index := len(pool.dbs)
+	if index == cap(pool.dbs) {
+		return db.TestDatabase{}, ErrPoolFull
+	}
+
+	// initalization of a new DB
+	newTestDB := db.TestDatabase{
+		Database: db.Database{
+			TemplateHash: pool.templateDB.TemplateHash,
+			Config:       pool.templateDB.Config,
+		},
+		ID: index,
+	}
+	// db name has an ID in suffix
+	templateName := pool.templateDB.Config.Database
+	dbName := fmt.Sprintf("%s_%03d", templateName, index)
+	newTestDB.Database.Config.Database = dbName
+
+	if err := pool.recreateDB(ctx, newTestDB, templateName); err != nil {
+		return db.TestDatabase{}, err
+	}
+
+	// add new test DB to the pool
+	pool.dbs = append(pool.dbs, existingDB{state: dbStateReady, TestDatabase: newTestDB})
+
+	return newTestDB, nil
+	// dbHashPool unlocked
+	// !
+}
+
+func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
+	// close the dirty channel to stop the worker
+	close(pool.dirty)
+
+	// !
+	// dbHashPool locked
+	pool.Lock()
+	defer pool.Unlock()
+
+	// remove from back to be able to repeat operation in case of error
+	for id := len(pool.dbs) - 1; id >= 0; id-- {
+		testDB := pool.dbs[id].TestDatabase
+
+		if err := removeFunc(testDB); err != nil {
+			return err
+		}
+
+		pool.dbs = pool.dbs[:len(pool.dbs)-1]
+	}
+
+	return nil
+	// dbHashPool unlocked
 	// !
 }
