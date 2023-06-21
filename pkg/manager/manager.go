@@ -28,19 +28,21 @@ type Manager struct {
 	db     *sql.DB
 	wg     sync.WaitGroup
 
-	disconnectChan chan bool
-	templates      *templates.Collection
-	pool           *pool.DBPool
+	templates *templates.Collection
+	pool      *pool.DBPool
+
+	connectionCtx       context.Context
+	cancelConnectionCtx func()
 }
 
 func New(config ManagerConfig) *Manager {
 	m := &Manager{
-		config:         config,
-		db:             nil,
-		wg:             sync.WaitGroup{},
-		disconnectChan: make(chan bool),
-		templates:      templates.NewCollection(),
-		pool:           pool.NewDBPool(config.TestDatabaseMaxPoolSize),
+		config:        config,
+		db:            nil,
+		wg:            sync.WaitGroup{},
+		templates:     templates.NewCollection(),
+		pool:          pool.NewDBPool(config.TestDatabaseMaxPoolSize),
+		connectionCtx: context.TODO(),
 	}
 
 	if len(m.config.TestDatabaseOwner) == 0 {
@@ -78,6 +80,12 @@ func (m *Manager) Connect(ctx context.Context) error {
 
 	m.db = db
 
+	// set cancellable connection context
+	// used to stop background tasks
+	ctx, cancel := context.WithCancel(context.Background())
+	m.connectionCtx = ctx
+	m.cancelConnectionCtx = cancel
+
 	return nil
 }
 
@@ -87,9 +95,8 @@ func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
 	}
 
 	// signal stop to background routines
-	go func() {
-		m.disconnectChan <- true
-	}()
+	m.cancelConnectionCtx()
+	m.connectionCtx = context.TODO()
 
 	_, err := util.WaitWithCancellableCtx(ctx, func(context.Context) (bool, error) {
 		m.wg.Wait()
@@ -397,8 +404,7 @@ func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *
 // Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.
 func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Template, count int) {
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := m.connectionCtx
 
 	m.wg.Add(1)
 	go func() {
@@ -412,11 +418,6 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 		}
 	}()
 
-	select {
-	case <-m.disconnectChan:
-		// manager was requested to stop
-	case <-ctx.Done():
-	}
 }
 
 func (m *Manager) makeTemplateDatabaseName(hash string) string {
