@@ -69,7 +69,7 @@ func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Dat
 	}
 }
 
-func (h *dbHashPool) cleanUpDirtyDBWorker() {
+func (h *dbHashPool) workerCleanUpDirtyDB() {
 	ctx := context.Background()
 	templateName := h.templateDB.Config.Database
 
@@ -99,6 +99,19 @@ func (h *dbHashPool) cleanUpDirtyDBWorker() {
 		h.Unlock()
 
 		h.ready <- testDB.ID
+	}
+}
+
+func (p *DBPool) Stop() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	for _, pool := range p.pools {
+		close(pool.dirty)
+	}
+	p.wg.Wait()
+	for _, pool := range p.pools {
+		close(pool.ready)
 	}
 }
 
@@ -139,10 +152,19 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 		return
 	}
 
-	return pool.dbs[index].TestDatabase, nil
+	givenTestDB := pool.dbs[index]
+	// sanity check, should never happen - we got this index from 'ready' channel
+	if givenTestDB.state != dbStateReady {
+		err = ErrInvalidState
+		return
+	}
+
+	givenTestDB.state = dbStateInUse
+	pool.dbs[index] = givenTestDB
+
+	return givenTestDB.TestDatabase, nil
 	// dbHashPool unlocked
 	// !
-
 }
 
 func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
@@ -192,9 +214,9 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 
 	if pool == nil {
 		// create a new dbHashPool
-		pool = newDBHashPool(p.maxPoolSize, pool.recreateDB, templateDB)
+		pool = newDBHashPool(p.maxPoolSize, initFunc, templateDB)
 		// and start the cleaning worker
-		p.enableCleanUpDirtyDBWorker(pool)
+		p.enableworkerCleanUpDirtyDB(pool)
 
 		// pool is ready
 		p.pools[hash] = pool
@@ -303,11 +325,11 @@ func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc 
 	// !
 }
 
-func (p *DBPool) enableCleanUpDirtyDBWorker(pool *dbHashPool) {
+func (p *DBPool) enableworkerCleanUpDirtyDB(pool *dbHashPool) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		pool.cleanUpDirtyDBWorker()
+		pool.workerCleanUpDirtyDB()
 	}()
 }
 
@@ -335,7 +357,7 @@ func (p *DBPool) removeAllFromPool(pool *dbHashPool, removeFunc func(db.TestData
 	// all DBs removed, enable the worker again
 	pool.dirty = make(chan int, p.maxPoolSize)
 	pool.ready = make(chan int, p.maxPoolSize)
-	p.enableCleanUpDirtyDBWorker(pool)
+	p.enableworkerCleanUpDirtyDB(pool)
 
 	return nil
 	// dbHashPool unlocked
