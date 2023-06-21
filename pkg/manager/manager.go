@@ -231,7 +231,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 
 	// early bailout if we are already ready (multiple calls)
 	if state == templates.TemplateStateReady {
-		return template.Database, nil
+		return template.Database, ErrTemplateAlreadyInitialized
 	}
 
 	// Disallow transition from discarded to ready
@@ -266,24 +266,18 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, ErrInvalidTemplateState
 	}
 
-	testDB, dirty, err := m.pool.GetDB(ctx, template.TemplateHash)
+	testDB, err := m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseWaitTimeout)
 	if err != nil {
-		if !errors.Is(err, pool.ErrNoDBReady) {
-			// internal error occurred, return directly
+		if errors.Is(err, pool.ErrNoDBReady) {
+			// no DB is ready, we can try to add a new DB is pool is not full
+			return m.createTestDatabaseFromTemplate(ctx, template)
+		} else {
+			// else internal error occurred, return directly
 			return db.TestDatabase{}, err
 		}
-
-		// no DB is ready, we can try to add a new DB is pool is not full
-		return m.createTestDatabaseFromTemplate(ctx, template)
 	}
 
-	// if no error occurred, a testDB has been found
-	if !dirty {
-		return testDB, nil
-	}
-
-	// clean it, if it's dirty, before returning it to the user
-	return m.cleanTestDatabase(ctx, testDB, m.makeTemplateDatabaseName(testDB.TemplateHash))
+	return testDB, nil
 }
 
 func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) error {

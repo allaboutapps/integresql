@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
 )
@@ -60,7 +61,7 @@ func popFirstKey(idMap dbIDMap) int {
 	return id
 }
 
-func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, isDirty bool, err error) {
+func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
 
 	// !
 	// DBPool locked
@@ -95,8 +96,8 @@ func (p *DBPool) GetDB(ctx context.Context, hash string) (db db.TestDatabase, is
 			return
 		}
 
-		isDirty = true
 		index = popFirstKey(pool.dirty)
+
 	}
 
 	// sanity check, should never happen
