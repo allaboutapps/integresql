@@ -180,3 +180,51 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 	wg.Wait()
 	p.Stop()
 }
+
+func TestPoolRemoveAll(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	hash1 := "h1"
+	hash2 := "h2"
+	templateDB1 := db.Database{
+		TemplateHash: hash1,
+	}
+	templateDB2 := db.Database{
+		TemplateHash: hash2,
+	}
+	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+		t.Log("(re)create ", testDB.Database)
+		return nil
+	}
+	removeFunc := func(testDB db.TestDatabase) error {
+		t.Log("remove ", testDB.Database)
+		return nil
+	}
+
+	maxPoolSize := 6
+	p := pool.NewDBPool(maxPoolSize)
+
+	// add DBs sequentially
+	for i := 0; i < maxPoolSize; i++ {
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB2, initFunc))
+	}
+
+	// remove all
+	assert.NoError(t, p.RemoveAll(ctx, removeFunc))
+
+	// try to get
+	_, err := p.GetTestDatabase(ctx, hash1, 0)
+	assert.Error(t, err, pool.ErrTimeout)
+	_, err = p.GetTestDatabase(ctx, hash2, 0)
+	assert.Error(t, err, pool.ErrTimeout)
+
+	// start using pool again
+	assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
+	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, testDB.ID)
+
+	p.Stop()
+}

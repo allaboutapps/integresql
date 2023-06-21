@@ -204,6 +204,31 @@ func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
 	// !
 }
 
+func (pool *dbHashPool) removeAllFromPool(removeFunc func(db.TestDatabase) error) error {
+	// close the dirty channel to stop the worker
+	close(pool.dirty)
+
+	// !
+	// dbHashPool locked
+	pool.Lock()
+	defer pool.Unlock()
+
+	// remove from back to be able to repeat operation in case of error
+	for id := len(pool.dbs) - 1; id >= 0; id-- {
+		testDB := pool.dbs[id].TestDatabase
+
+		if err := removeFunc(testDB); err != nil {
+			return err
+		}
+
+		pool.dbs = pool.dbs[:len(pool.dbs)-1]
+	}
+
+	return nil
+	// dbHashPool unlocked
+	// !
+}
+
 func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, initFunc RecreateDBFunc) error {
 	hash := templateDB.TemplateHash
 
@@ -320,7 +345,14 @@ func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc 
 		return ErrUnknownHash
 	}
 
-	return p.removeAllFromPool(pool, removeFunc)
+	if err := pool.removeAllFromPool(removeFunc); err != nil {
+		return err
+	}
+
+	// all DBs have been removed, now remove the pool itself
+	delete(p.pools, hash)
+
+	return nil
 	// DBPool unlocked
 	// !
 }
@@ -333,37 +365,6 @@ func (p *DBPool) enableworkerCleanUpDirtyDB(pool *dbHashPool) {
 	}()
 }
 
-func (p *DBPool) removeAllFromPool(pool *dbHashPool, removeFunc func(db.TestDatabase) error) error {
-	// close the channels, and reopen them when the operation is completed
-	close(pool.dirty)
-	close(pool.ready)
-
-	// !
-	// dbHashPool locked
-	pool.Lock()
-	defer pool.Unlock()
-
-	// remove from back to be able to repeat operation in case of error
-	for id := len(pool.dbs) - 1; id >= 0; id-- {
-		testDB := pool.dbs[id].TestDatabase
-
-		if err := removeFunc(testDB); err != nil {
-			return err
-		}
-
-		pool.dbs = pool.dbs[:len(pool.dbs)-1]
-	}
-
-	// all DBs removed, enable the worker again
-	pool.dirty = make(chan int, p.maxPoolSize)
-	pool.ready = make(chan int, p.maxPoolSize)
-	p.enableworkerCleanUpDirtyDB(pool)
-
-	return nil
-	// dbHashPool unlocked
-	// !
-}
-
 func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
 	// !
 	// DBPool locked
@@ -371,7 +372,7 @@ func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase)
 	defer p.mutex.Unlock()
 
 	for hash, pool := range p.pools {
-		if err := p.removeAllFromPool(pool, removeFunc); err != nil {
+		if err := pool.removeAllFromPool(removeFunc); err != nil {
 			return err
 		}
 
