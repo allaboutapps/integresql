@@ -11,6 +11,7 @@ import (
 	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/allaboutapps/integresql/pkg/templates"
+	"github.com/allaboutapps/integresql/pkg/util"
 	"github.com/lib/pq"
 )
 
@@ -27,18 +28,19 @@ type Manager struct {
 	db     *sql.DB
 	wg     sync.WaitGroup
 
-	closeChan chan bool
-	templates *templates.Collection
-	pool      *pool.DBPool
+	disconnectChan chan bool
+	templates      *templates.Collection
+	pool           *pool.DBPool
 }
 
 func New(config ManagerConfig) *Manager {
 	m := &Manager{
-		config:    config,
-		db:        nil,
-		wg:        sync.WaitGroup{},
-		templates: templates.NewCollection(),
-		pool:      pool.NewDBPool(config.TestDatabaseMaxPoolSize),
+		config:         config,
+		db:             nil,
+		wg:             sync.WaitGroup{},
+		disconnectChan: make(chan bool),
+		templates:      templates.NewCollection(),
+		pool:           pool.NewDBPool(config.TestDatabaseMaxPoolSize),
 	}
 
 	if len(m.config.TestDatabaseOwner) == 0 {
@@ -84,17 +86,21 @@ func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
 		return errors.New("manager is not connected")
 	}
 
-	m.closeChan <- true
-
-	c := make(chan struct{})
+	// signal stop to background routines
 	go func() {
-		defer close(c)
-		m.wg.Wait()
+		m.disconnectChan <- true
 	}()
 
-	select {
-	case <-c:
-	case <-ctx.Done():
+	_, err := util.WaitWithCancellableCtx(ctx, func(context.Context) (bool, error) {
+		m.wg.Wait()
+		return true, nil
+	})
+
+	if err != nil {
+		// we didn't manage to stop on time background routines
+		// but we will continue and close the DB connection
+		// TODO anna: error handling
+		// fmt.Println("integresql: timeout when stopping background tasks")
 	}
 
 	if err := m.db.Close(); err != nil && !ignoreCloseError {
@@ -392,11 +398,11 @@ func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *
 func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Template, count int) {
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		defer cancel()
 
 		for i := 0; i < count; i++ {
 			if err := m.createTestDatabaseFromTemplate(ctx, template); err != nil {
@@ -407,9 +413,8 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 	}()
 
 	select {
-	case <-m.closeChan:
+	case <-m.disconnectChan:
 		// manager was requested to stop
-		cancel()
 	case <-ctx.Done():
 	}
 }

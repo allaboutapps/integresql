@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/util"
 )
 
 func testManagerFromEnv() *Manager {
@@ -23,13 +24,18 @@ func testManagerFromEnv() *Manager {
 func disconnectManager(t *testing.T, m *Manager) {
 
 	t.Helper()
+	timeout := 1 * time.Second
+	ctx := context.Background()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+	_, err := util.WaitWithTimeout(ctx, timeout, func(ctx context.Context) (bool, error) {
+		err := m.Disconnect(ctx, true)
+		return false, err
+	})
 
-	if err := m.Disconnect(ctx, true); err != nil {
-		t.Logf("received error while disconnecting manager: %v", err)
+	if err != nil {
+		t.Errorf("received error while disconnecting manager: %v", err)
 	}
+
 }
 
 func initTemplateDB(ctx context.Context, errs chan<- error, m *Manager) {

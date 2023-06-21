@@ -31,3 +31,23 @@ func WaitWithTimeout[T any](ctx context.Context, timeout time.Duration, operatio
 		return empty, ErrTimeout
 	}
 }
+
+func WaitWithCancellableCtx[T any](ctx context.Context, operation func(context.Context) (T, error)) (T, error) {
+
+	resChan := make(chan T, 1)
+	g, cctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		res, err := operation(cctx)
+		resChan <- res
+		return err
+	})
+
+	select {
+	case res := <-resChan:
+		return res, g.Wait()
+	case <-ctx.Done():
+		var empty T
+		return empty, ErrTimeout
+	}
+}
