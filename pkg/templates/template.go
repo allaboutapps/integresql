@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/util"
 )
 
 type TemplateState int32
@@ -59,23 +60,16 @@ func (t *Template) WaitUntilReady(ctx context.Context, timeout time.Duration) (e
 		return
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	newStateChan := make(chan TemplateState, 1)
-	go func() {
+	state, err := util.WaitWithTimeout(ctx, timeout, func(context.Context) (TemplateState, error) {
 		t.cond.L.Lock()
 		defer t.cond.L.Unlock()
 		t.cond.Wait()
 
-		newStateChan <- t.state
-	}()
+		return t.state, nil
+	})
 
-	select {
-	case state := <-newStateChan:
-		return state
-	case <-cctx.Done():
-		// timeout means that there were no state changes in the meantime
+	if err != nil {
 		return currentState
 	}
+	return state
 }
