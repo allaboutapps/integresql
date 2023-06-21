@@ -220,7 +220,7 @@ func (c *Client) GetTestDatabase(ctx context.Context, hash string) (TestDatabase
 	case http.StatusNotFound:
 		return test, manager.ErrTemplateNotFound
 	case http.StatusGone:
-		return test, pool.ErrUnknownID
+		return test, pool.ErrInvalidIndex
 	case http.StatusServiceUnavailable:
 		return test, manager.ErrManagerNotReady
 	default:

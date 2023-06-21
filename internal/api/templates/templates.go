@@ -133,7 +133,7 @@ func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 				return echo.ErrServiceUnavailable
 			case manager.ErrTemplateNotFound:
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			case pool.ErrUnknownID:
+			case pool.ErrUnknownHash:
 				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
 			default:
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

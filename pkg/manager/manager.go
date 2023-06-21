@@ -267,14 +267,13 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 	}
 
 	testDB, err := m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseWaitTimeout)
+	if errors.Is(err, pool.ErrTimeout) {
+		// on timeout we can try to extend the pool
+		testDB, err = m.pool.ExtendPool(ctx, template.Database)
+	}
+
 	if err != nil {
-		if errors.Is(err, pool.ErrNoDBReady) {
-			// no DB is ready, we can try to add a new DB is pool is not full
-			return m.createTestDatabaseFromTemplate(ctx, template)
-		} else {
-			// else internal error occurred, return directly
-			return db.TestDatabase{}, err
-		}
+		return db.TestDatabase{}, err
 	}
 
 	return testDB, nil
@@ -384,22 +383,17 @@ func (m *Manager) cleanTestDatabase(ctx context.Context, testDB db.TestDatabase,
 
 // createTestDatabaseFromTemplate adds a new test database in the pool (increasing its size) basing on the given template.
 // It waits until the template is ready.
-func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) (db.TestDatabase, error) {
+func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) error {
 	if template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateReady {
 		// if the state changed in the meantime, return
-		return db.TestDatabase{}, ErrInvalidTemplateState
+		return ErrInvalidTemplateState
 	}
 
-	dbNamePrefix := m.makeTestDatabasePrefix(template.TemplateHash)
-	testDB, err := m.pool.AddTestDatabase(ctx, template.Database, dbNamePrefix, func(testDB db.TestDatabase) error {
+	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
 		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, template.Config.Database)
-	})
-
-	if err != nil {
-		return db.TestDatabase{}, err
 	}
 
-	return testDB, nil
+	return m.pool.AddTestDatabase(ctx, template.Database, initFunc)
 }
 
 // Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.
@@ -413,8 +407,10 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 		defer cancel()
 
 		for i := 0; i < count; i++ {
-			// TODO log error somewhere instead of silently swallowing it?
-			_, _ = m.createTestDatabaseFromTemplate(ctx, template)
+			if err := m.createTestDatabaseFromTemplate(ctx, template); err != nil {
+				// TODO anna: error handling
+				fmt.Printf("integresql: failed to initialize DB: %v\n", err)
+			}
 		}
 	}()
 

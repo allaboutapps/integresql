@@ -55,6 +55,6 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseOwnerPassword:   util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
 		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
 		TestDatabaseMaxPoolSize:     util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
-		TestDatabaseWaitTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB READY_WAIT_TIMEOUT", 1000)),
+		TestDatabaseWaitTimeout:     time.Second * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_WAIT_TIMEOUT_SEC", 10)),
 	}
 }
