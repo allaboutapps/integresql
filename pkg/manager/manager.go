@@ -27,18 +27,18 @@ type Manager struct {
 	db     *sql.DB
 	wg     sync.WaitGroup
 
-	closeChan  chan bool
-	templatesX *templates.Collection
-	pool       *pool.DBPool
+	closeChan chan bool
+	templates *templates.Collection
+	pool      *pool.DBPool
 }
 
 func New(config ManagerConfig) *Manager {
 	m := &Manager{
-		config:     config,
-		db:         nil,
-		wg:         sync.WaitGroup{},
-		templatesX: templates.NewCollection(),
-		pool:       pool.NewDBPool(config.TestDatabaseMaxPoolSize),
+		config:    config,
+		db:        nil,
+		wg:        sync.WaitGroup{},
+		templates: templates.NewCollection(),
+		pool:      pool.NewDBPool(config.TestDatabaseMaxPoolSize),
 	}
 
 	if len(m.config.TestDatabaseOwner) == 0 {
@@ -162,7 +162,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 		Database: dbName,
 	}
 
-	added, unlock := m.templatesX.Push(ctx, hash, templateConfig)
+	added, unlock := m.templates.Push(ctx, hash, templateConfig)
 	// unlock template collection only after the template is actually initalized in the DB
 	defer unlock()
 
@@ -172,7 +172,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 
 	reg := trace.StartRegion(ctx, "drop_and_create_db")
 	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
-		m.templatesX.RemoveUnsafe(ctx, hash)
+		m.templates.RemoveUnsafe(ctx, hash)
 
 		return db.Database{}, err
 	}
@@ -193,7 +193,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		return ErrManagerNotReady
 	}
 
-	template, found := m.templatesX.Pop(ctx, hash)
+	template, found := m.templates.Pop(ctx, hash)
 	dbName := template.Config.Database
 
 	if !found {
@@ -222,7 +222,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 		return db.Database{}, ErrManagerNotReady
 	}
 
-	template, found := m.templatesX.Get(ctx, hash)
+	template, found := m.templates.Get(ctx, hash)
 	if !found {
 		return db.Database{}, ErrTemplateNotFound
 	}
@@ -230,7 +230,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	state := template.GetState(ctx)
 
 	// early bailout if we are already ready (multiple calls)
-	if state == templates.TemplateStateReady {
+	if state == templates.TemplateStateFinalized {
 		return template.Database, ErrTemplateAlreadyInitialized
 	}
 
@@ -239,7 +239,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 		return db.Database{}, ErrTemplateDiscarded
 	}
 
-	template.SetState(ctx, templates.TemplateStateReady)
+	template.SetState(ctx, templates.TemplateStateFinalized)
 
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
@@ -254,15 +254,15 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, ErrManagerNotReady
 	}
 
-	template, found := m.templatesX.Get(ctx, hash)
+	template, found := m.templates.Get(ctx, hash)
 	if !found {
 		return db.TestDatabase{}, ErrTemplateNotFound
 	}
 
 	// if the template has been discarded/not initalized yet,
 	// no DB should be returned, even if already in the pool
-	state := template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout)
-	if state != templates.TemplateStateReady {
+	state := template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout)
+	if state != templates.TemplateStateFinalized {
 		return db.TestDatabase{}, ErrInvalidTemplateState
 	}
 
@@ -285,12 +285,14 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 	}
 
 	// check if the template exists and is 'ready'
-	template, found := m.templatesX.Get(ctx, hash)
+	template, found := m.templates.Get(ctx, hash)
 	if !found {
 		return ErrTemplateNotFound
 	}
 
-	if template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateReady {
+	if template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout) !=
+		templates.TemplateStateFinalized {
+
 		return ErrInvalidTemplateState
 	}
 
@@ -315,8 +317,8 @@ func (m *Manager) ResetAllTracking(ctx context.Context) error {
 		return ErrManagerNotReady
 	}
 
-	// remove all templates to disallow any new test DB creation
-	m.templatesX.RemoveAll(ctx)
+	// remove all templates to disallow any new test DB creation from existing templates
+	m.templates.RemoveAll(ctx)
 
 	removeFunc := func(testDB db.TestDatabase) error {
 		return m.dropDatabase(ctx, testDB.Config.Database)
@@ -371,20 +373,10 @@ func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owne
 	return m.createDatabase(ctx, dbName, owner, template)
 }
 
-// cleanTestDatabase recreates a dirty DB obtained from the pool.
-// It is created according to the given template.
-func (m *Manager) cleanTestDatabase(ctx context.Context, testDB db.TestDatabase, templateDBName string) (db.TestDatabase, error) {
-	if err := m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateDBName); err != nil {
-		return db.TestDatabase{}, err
-	}
-
-	return testDB, nil
-}
-
 // createTestDatabaseFromTemplate adds a new test database in the pool (increasing its size) basing on the given template.
 // It waits until the template is ready.
 func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) error {
-	if template.WaitUntilReady(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateReady {
+	if template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateFinalized {
 		// if the state changed in the meantime, return
 		return ErrInvalidTemplateState
 	}
@@ -424,8 +416,4 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 
 func (m *Manager) makeTemplateDatabaseName(hash string) string {
 	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
-}
-
-func (m *Manager) makeTestDatabasePrefix(hash string) string {
-	return fmt.Sprintf("%s_%s_%s_", m.config.DatabasePrefix, m.config.TestDatabasePrefix, hash)
 }

@@ -19,9 +19,9 @@ func TestTemplateGetSetState(t *testing.T) {
 	state := t1.GetState(ctx)
 	assert.Equal(t, templates.TemplateStateInit, state)
 
-	t1.SetState(ctx, templates.TemplateStateReady)
+	t1.SetState(ctx, templates.TemplateStateFinalized)
 	state = t1.GetState(ctx)
-	assert.Equal(t, templates.TemplateStateReady, state)
+	assert.Equal(t, templates.TemplateStateFinalized, state)
 
 	t1.SetState(ctx, templates.TemplateStateDiscarded)
 	state = t1.GetState(ctx)
@@ -46,8 +46,8 @@ func TestTemplateWaitForReady(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			timeout := 1 * time.Second
-			state := t1.WaitUntilReady(ctx, timeout)
-			if state != templates.TemplateStateReady {
+			state := t1.WaitUntilFinalized(ctx, timeout)
+			if state != templates.TemplateStateFinalized {
 				errsChan <- errors.New("expected ready, but is not")
 			}
 		}()
@@ -59,7 +59,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			timeout := 3 * time.Millisecond
-			state := t1.WaitUntilReady(ctx, timeout)
+			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateInit {
 				errsChan <- errors.New("expected state init, but is not")
 			}
@@ -68,7 +68,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 
 	// now set state
 	time.Sleep(5 * time.Millisecond)
-	t1.SetState(ctx, templates.TemplateStateReady)
+	t1.SetState(ctx, templates.TemplateStateFinalized)
 
 	wg.Wait()
 	close(errsChan)

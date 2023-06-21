@@ -14,7 +14,7 @@ type TemplateState int32
 const (
 	TemplateStateInit TemplateState = iota
 	TemplateStateDiscarded
-	TemplateStateReady
+	TemplateStateFinalized
 )
 
 type Template struct {
@@ -54,9 +54,9 @@ func (t *Template) SetState(ctx context.Context, newState TemplateState) {
 	t.cond.Broadcast()
 }
 
-func (t *Template) WaitUntilReady(ctx context.Context, timeout time.Duration) (exitState TemplateState) {
+func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration) (exitState TemplateState) {
 	currentState := t.GetState(ctx)
-	if currentState == TemplateStateReady {
+	if currentState == TemplateStateFinalized {
 		return
 	}
 
