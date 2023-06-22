@@ -26,6 +26,8 @@ const (
 	dbStateDirty = iota
 )
 
+const stopWorkerMessage int = -1
+
 type DBPool struct {
 	pools map[string]*dbHashPool // map[hash]
 	mutex sync.RWMutex
@@ -187,6 +189,11 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 		return db.TestDatabase{}, err
 	}
 
+	// because we return it right away, we treat it as 'inUse'
+	pool.Lock()
+	pool.dbs[newTestDB.ID].state = dbStateInUse
+	pool.Unlock()
+
 	return newTestDB, nil
 }
 
@@ -297,12 +304,17 @@ func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Dat
 }
 
 func (pool *dbHashPool) workerCleanUpDirtyDB() {
+
 	ctx := context.Background()
 	templateName := pool.templateDB.Config.Database
 
 	for dirtyID := range pool.dirty {
 		pool.RLock()
-		if dirtyID >= len(pool.dbs) {
+		if dirtyID == stopWorkerMessage {
+			break
+		}
+
+		if dirtyID < 0 || dirtyID >= len(pool.dbs) {
 			// sanity check, should never happen
 			pool.RUnlock()
 			continue
@@ -367,13 +379,18 @@ func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
 }
 
 func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
-	// close the dirty channel to stop the worker
-	close(pool.dirty)
 
 	// !
 	// dbHashPool locked
 	pool.Lock()
 	defer pool.Unlock()
+
+	if len(pool.dbs) == 0 {
+		return nil
+	}
+
+	// stop the worker
+	pool.dirty <- stopWorkerMessage
 
 	// remove from back to be able to repeat operation in case of error
 	for id := len(pool.dbs) - 1; id >= 0; id-- {
@@ -385,6 +402,11 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 
 		pool.dbs = pool.dbs[:len(pool.dbs)-1]
 	}
+
+	// close all only if removal of all succeeded
+	pool.dbs = nil
+	close(pool.dirty)
+	close(pool.ready)
 
 	return nil
 	// dbHashPool unlocked
