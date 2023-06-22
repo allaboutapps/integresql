@@ -65,6 +65,10 @@ func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initD
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
+	_ = p.initHashPool(ctx, templateDB, initDBFunc)
+}
+
+func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
 	// create a new dbHashPool
 	pool := newDBHashPool(p.maxPoolSize, initDBFunc, templateDB)
 	// and start the cleaning worker
@@ -72,6 +76,8 @@ func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initD
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
+
+	return pool
 }
 
 func (p *DBPool) Stop() {
@@ -148,7 +154,7 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	pool := p.pools[hash]
 
 	if pool == nil {
-		p.InitHashPool(ctx, templateDB, initFunc)
+		pool = p.initHashPool(ctx, templateDB, initFunc)
 	}
 
 	p.mutex.Unlock()
@@ -380,17 +386,13 @@ func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
 
 func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
 
+	// stop the worker
+	pool.dirty <- stopWorkerMessage
+
 	// !
 	// dbHashPool locked
 	pool.Lock()
 	defer pool.Unlock()
-
-	if len(pool.dbs) == 0 {
-		return nil
-	}
-
-	// stop the worker
-	pool.dirty <- stopWorkerMessage
 
 	// remove from back to be able to repeat operation in case of error
 	for id := len(pool.dbs) - 1; id >= 0; id-- {
@@ -400,7 +402,9 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 			return err
 		}
 
-		pool.dbs = pool.dbs[:len(pool.dbs)-1]
+		if len(pool.dbs) > 1 {
+			pool.dbs = pool.dbs[:len(pool.dbs)-1]
+		}
 	}
 
 	// close all only if removal of all succeeded
