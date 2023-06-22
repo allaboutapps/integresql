@@ -108,7 +108,7 @@ func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
 		// we didn't manage to stop on time background routines
 		// but we will continue and close the DB connection
 		// TODO anna: error handling
-		// fmt.Println("integresql: timeout when stopping background tasks")
+		fmt.Println("integresql: timeout when stopping background tasks")
 	}
 
 	if err := m.db.Close(); err != nil && !ignoreCloseError {
@@ -264,7 +264,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 
 	// Init a pool with this hash
 	initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, template.Config.Database)
+		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
 	}
 	m.pool.InitHashPool(ctx, template.Database, initDBFunc)
 
@@ -394,6 +394,10 @@ func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 }
 
 func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owner string, template string) error {
+	if !m.Ready() {
+		return ErrManagerNotReady
+	}
+
 	if err := m.dropDatabase(ctx, dbName); err != nil {
 		return err
 	}
@@ -410,7 +414,7 @@ func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *
 	}
 
 	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, template.Config.Database)
+		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
 	}
 
 	return m.pool.AddTestDatabase(ctx, template.Database, initFunc)
