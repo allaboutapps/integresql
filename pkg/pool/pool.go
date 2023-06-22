@@ -97,17 +97,17 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 
 	// !
 	// DBPool locked
-	p.mutex.Lock()
+	p.mutex.RLock()
 	pool := p.pools[hash]
 
 	if pool == nil {
 		// no such pool
-		p.mutex.Unlock()
+		p.mutex.RUnlock()
 		err = ErrUnknownHash
 		return
 	}
 
-	p.mutex.Unlock()
+	p.mutex.RUnlock()
 	// DBPool unlocked
 	// !
 
@@ -393,6 +393,10 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	// dbHashPool locked
 	pool.Lock()
 	defer pool.Unlock()
+
+	if len(pool.dbs) == 0 {
+		return nil
+	}
 
 	// remove from back to be able to repeat operation in case of error
 	for id := len(pool.dbs) - 1; id >= 0; id-- {
