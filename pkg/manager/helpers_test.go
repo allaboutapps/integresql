@@ -1,4 +1,4 @@
-package manager
+package manager_test
 
 import (
 	"context"
@@ -8,20 +8,28 @@ import (
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/manager"
 	"github.com/allaboutapps/integresql/pkg/util"
 )
 
-func testManagerFromEnv() *Manager {
-	conf := DefaultManagerConfigFromEnv()
+func testManagerFromEnv() *manager.Manager {
+	conf := manager.DefaultManagerConfigFromEnv()
 	conf.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
-	return New(conf)
+	m, _ := manager.New(conf)
+	return m
+}
+
+func testManagerFromEnvWithConfig() (*manager.Manager, manager.ManagerConfig) {
+	conf := manager.DefaultManagerConfigFromEnv()
+	conf.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
+	return manager.New(conf)
 }
 
 // test helpers should never return errors, but are passed the *testing.T instance and fail if needed. It seems to be recommended helper functions are moved to a testing.go file...
 // https://medium.com/@povilasve/go-advanced-tips-tricks-a872503ac859
 // https://about.sourcegraph.com/go/advanced-testing-in-go
 
-func disconnectManager(t *testing.T, m *Manager) {
+func disconnectManager(t *testing.T, m *manager.Manager) {
 
 	t.Helper()
 	timeout := 1 * time.Second
@@ -38,7 +46,7 @@ func disconnectManager(t *testing.T, m *Manager) {
 
 }
 
-func initTemplateDB(ctx context.Context, errs chan<- error, m *Manager) {
+func initTemplateDB(ctx context.Context, errs chan<- error, m *manager.Manager) {
 
 	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash")
 	if err != nil {
@@ -146,7 +154,7 @@ func verifyTestDB(t *testing.T, test db.TestDatabase) {
 	}
 }
 
-func getTestDB(ctx context.Context, errs chan<- error, m *Manager) {
+func getTestDB(ctx context.Context, errs chan<- error, m *manager.Manager) {
 
 	_, err := m.GetTestDatabase(context.Background(), "hashinghash")
 	errs <- err

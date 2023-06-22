@@ -35,7 +35,7 @@ type Manager struct {
 	cancelConnectionCtx func()
 }
 
-func New(config ManagerConfig) *Manager {
+func New(config ManagerConfig) (*Manager, ManagerConfig) {
 	m := &Manager{
 		config:        config,
 		db:            nil,
@@ -57,11 +57,12 @@ func New(config ManagerConfig) *Manager {
 		m.config.TestDatabaseInitialPoolSize = m.config.TestDatabaseMaxPoolSize
 	}
 
-	return m
+	return m, m.config
 }
 
 func DefaultFromEnv() *Manager {
-	return New(DefaultManagerConfigFromEnv())
+	m, _ := New(DefaultManagerConfigFromEnv())
+	return m
 }
 
 func (m *Manager) Connect(ctx context.Context) error {

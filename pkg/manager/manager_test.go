@@ -1,4 +1,4 @@
-package manager
+package manager_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/manager"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,7 +32,7 @@ func TestManagerConnect(t *testing.T) {
 func TestManagerConnectError(t *testing.T) {
 	t.Parallel()
 
-	m := New(ManagerConfig{
+	m, _ := manager.New(manager.ManagerConfig{
 		ManagerDatabaseConfig: db.DatabaseConfig{
 			Host:     "definitelydoesnotexist",
 			Port:     2345,
@@ -169,7 +170,7 @@ func TestManagerInitializeTemplateDatabaseConcurrently(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			if err == ErrTemplateAlreadyInitialized {
+			if err == manager.ErrTemplateAlreadyInitialized {
 				failed++
 			} else {
 				errored++
@@ -207,27 +208,27 @@ func TestManagerFinalizeTemplateDatabase(t *testing.T) {
 
 	populateTemplateDB(t, template)
 
-	// template, err = m.FinalizeTemplateDatabase(ctx, hash)
-	// if err != nil {
-	// 	t.Fatalf("failed to finalize template database: %v", err)
-	// }
+	template, err = m.FinalizeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
 
-	// if !template.Ready(ctx) {
-	// 	t.Error("template database is flagged as not ready")
-	// }
+	if template.TemplateHash != hash {
+		t.Error("invalid template hash")
+	}
 }
 
 func TestManagerFinalizeUntrackedTemplateDatabaseIsNotPossible(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	m, config := testManagerFromEnvWithConfig()
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
 
 	defer disconnectManager(t, m)
 
-	db, err := sql.Open("postgres", m.config.ManagerDatabaseConfig.ConnectionString())
+	db, err := sql.Open("postgres", config.ManagerDatabaseConfig.ConnectionString())
 	if err != nil {
 		t.Fatalf("failed to open connection to manager database: %v", err)
 	}
@@ -238,12 +239,12 @@ func TestManagerFinalizeUntrackedTemplateDatabaseIsNotPossible(t *testing.T) {
 	}
 
 	hash := "hashinghash"
-	dbName := fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+	dbName := fmt.Sprintf("%s_%s_%s", config.DatabasePrefix, config.TemplateDatabasePrefix, hash)
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		t.Fatalf("failed to manually drop template database %q: %v", dbName, err)
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(m.config.ManagerDatabaseConfig.Username), pq.QuoteIdentifier(m.config.TemplateDatabaseTemplate))); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(config.ManagerDatabaseConfig.Username), pq.QuoteIdentifier(config.TemplateDatabaseTemplate))); err != nil {
 		t.Fatalf("failed to manually create template database %q: %v", dbName, err)
 	}
 
@@ -605,11 +606,11 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	ctx := context.Background()
 
-	cfg := DefaultManagerConfigFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseMaxPoolSize = 3
 	cfg.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
 
-	m := New(cfg)
+	m, _ := manager.New(cfg)
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -708,7 +709,7 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	m, config := testManagerFromEnvWithConfig()
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -728,7 +729,7 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 		t.Fatalf("failed to finalize template database: %v", err)
 	}
 
-	db, err := sql.Open("postgres", m.config.ManagerDatabaseConfig.ConnectionString())
+	db, err := sql.Open("postgres", config.ManagerDatabaseConfig.ConnectionString())
 	if err != nil {
 		t.Fatalf("failed to open connection to manager database: %v", err)
 	}
@@ -739,12 +740,12 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 	}
 
 	id := 321
-	dbName := fmt.Sprintf("%s_%s_%s_%d", m.config.DatabasePrefix, m.config.TestDatabasePrefix, hash, id)
+	dbName := fmt.Sprintf("%s_%s_%s_%d", config.DatabasePrefix, config.TestDatabasePrefix, hash, id)
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		t.Fatalf("failed to manually drop template database %q: %v", dbName, err)
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(m.config.ManagerDatabaseConfig.Username), pq.QuoteIdentifier(template.Config.Database))); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(config.ManagerDatabaseConfig.Username), pq.QuoteIdentifier(template.Config.Database))); err != nil {
 		t.Fatalf("failed to manually create template database %q: %v", dbName, err)
 	}
 
