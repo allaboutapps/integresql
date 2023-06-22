@@ -57,10 +57,10 @@ func (t *Template) SetState(ctx context.Context, newState TemplateState) {
 func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration) (exitState TemplateState) {
 	currentState := t.GetState(ctx)
 	if currentState == TemplateStateFinalized {
-		return
+		return currentState
 	}
 
-	state, err := util.WaitWithTimeout(ctx, timeout, func(context.Context) (TemplateState, error) {
+	newState, err := util.WaitWithTimeout(ctx, timeout, func(context.Context) (TemplateState, error) {
 		t.cond.L.Lock()
 		defer t.cond.L.Unlock()
 		t.cond.Wait()
@@ -71,5 +71,5 @@ func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration
 	if err != nil {
 		return currentState
 	}
-	return state
+	return newState
 }
