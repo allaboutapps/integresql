@@ -88,9 +88,9 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	sleepDuration := 100 * time.Millisecond
 
-	// add test databases first to initialize hash pool
-	assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
-	assert.NoError(t, p.AddTestDatabase(ctx, templateDB2, initFunc))
+	// initialize hash pool
+	p.InitHashPool(ctx, templateDB1, initFunc)
+	p.InitHashPool(ctx, templateDB2, initFunc)
 
 	// add DB in one goroutine
 	wg.Add(1)
@@ -102,7 +102,7 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 		sleepDuration := sleepDuration
 
 		// add DBs sequentially
-		for i := 0; i < maxPoolSize-1; i++ {
+		for i := 0; i < maxPoolSize; i++ {
 			assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
 			assert.NoError(t, p.AddTestDatabase(ctx, templateDB2, initFunc))
 			time.Sleep(sleepDuration)

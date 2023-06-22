@@ -15,7 +15,7 @@ var (
 	ErrPoolFull     = errors.New("database pool is full")
 	ErrInvalidState = errors.New("database state is not valid for this operation")
 	ErrInvalidIndex = errors.New("invalid db.Database index (id)")
-	ErrTimeout      = errors.New("timeout on waiting for ready db")
+	ErrTimeout      = errors.New("timeout when waiting for ready db")
 )
 
 type dbState int
@@ -33,7 +33,6 @@ type DBPool struct {
 	mutex sync.RWMutex
 
 	maxPoolSize int
-	wg          sync.WaitGroup
 }
 
 func NewDBPool(maxPoolSize int) *DBPool {
@@ -59,6 +58,7 @@ type dbHashPool struct {
 	recreateDB RecreateDBFunc
 	templateDB db.Database
 	sync.RWMutex
+	wg sync.WaitGroup
 }
 
 func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
@@ -72,7 +72,7 @@ func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initD
 	// create a new dbHashPool
 	pool := newDBHashPool(p.maxPoolSize, initDBFunc, templateDB)
 	// and start the cleaning worker
-	p.enableworkerCleanUpDirtyDB(pool)
+	pool.enableWorker()
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
@@ -80,17 +80,16 @@ func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initD
 	return pool
 }
 
+// Stop is used to stop all background workers
 func (p *DBPool) Stop() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	for _, pool := range p.pools {
 		close(pool.dirty)
+		pool.wg.Wait()
 	}
-	p.wg.Wait()
-	for _, pool := range p.pools {
-		close(pool.ready)
-	}
+
 }
 
 func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
@@ -272,14 +271,6 @@ func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc 
 	// !
 }
 
-func (p *DBPool) enableworkerCleanUpDirtyDB(pool *dbHashPool) {
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		pool.workerCleanUpDirtyDB()
-	}()
-}
-
 func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
 	// !
 	// DBPool locked
@@ -309,17 +300,25 @@ func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Dat
 	}
 }
 
+func (pool *dbHashPool) enableWorker() {
+	pool.wg.Add(1)
+	go func() {
+		defer pool.wg.Done()
+		pool.workerCleanUpDirtyDB()
+	}()
+}
+
 func (pool *dbHashPool) workerCleanUpDirtyDB() {
 
 	ctx := context.Background()
 	templateName := pool.templateDB.Config.Database
 
 	for dirtyID := range pool.dirty {
-		pool.RLock()
 		if dirtyID == stopWorkerMessage {
 			break
 		}
 
+		pool.RLock()
 		if dirtyID < 0 || dirtyID >= len(pool.dbs) {
 			// sanity check, should never happen
 			pool.RUnlock()
@@ -387,7 +386,9 @@ func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
 func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
 
 	// stop the worker
+	// we don't close here because if the remove operation fails, we want to be able to repeat it
 	pool.dirty <- stopWorkerMessage
+	pool.wg.Wait()
 
 	// !
 	// dbHashPool locked
