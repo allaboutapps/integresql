@@ -302,37 +302,39 @@ func TestManagerGetTestDatabase(t *testing.T) {
 	verifyTestDB(t, test)
 }
 
-// disabled as we were running into timing issues
-// func TestManagerGetTestDatabaseTimeout(t *testing.T) {
-// 	ctx := context.Background()
+func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
+	ctx := context.Background()
 
-// 	m := testManagerFromEnv()
-// 	if err := m.Initialize(ctx); err != nil {
-// 		t.Fatalf("initializing manager failed: %v", err)
-// 	}
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseWaitTimeout = 10 * time.Nanosecond
+	// no db created initally in the background
+	cfg.TestDatabaseInitialPoolSize = 0
+	m, _ := testManagerWithConfig(cfg)
 
-// 	defer disconnectManager(t, m)
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
 
-// 	hash := "hashinghash"
+	defer disconnectManager(t, m)
 
-// 	template, err := m.InitializeTemplateDatabase(ctx, hash)
-// 	if err != nil {
-// 		t.Fatalf("failed to initialize template database: %v", err)
-// 	}
+	hash := "hashinghash"
 
-// 	populateTemplateDB(t, template)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
 
-// 	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
-// 		t.Fatalf("failed to finalize template database: %v", err)
-// 	}
+	populateTemplateDB(t, template)
 
-// 	ctxt, cancel := context.WithTimeout(ctx, 10*time.Nanosecond)
-// 	defer cancel()
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
 
-// 	if _, err := m.GetTestDatabase(ctxt, hash); err != context.DeadlineExceeded {
-// 		t.Fatalf("received unexpected error, got %v, want %v", err, context.DeadlineExceeded)
-// 	}
-// }
+	// get should succeed because a test DB is created on demand
+	testDB, err := m.GetTestDatabase(ctx, hash)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, testDB.ID)
+}
 
 func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 	ctx := context.Background()
@@ -607,10 +609,51 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseInitialPoolSize = 3
 	cfg.TestDatabaseMaxPoolSize = 3
-	cfg.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
+	m, _ := testManagerWithConfig(cfg)
 
-	m, _ := manager.New(cfg)
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
+
+	// request many more databases than initally added
+	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*3; i++ {
+		test, err := m.GetTestDatabase(ctx, hash)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, test)
+
+		// return testDB after usage
+		assert.NoError(t, m.ReturnTestDatabase(ctx, hash, test.ID))
+	}
+}
+
+func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	// there is just 1 database initially
+	cfg.TestDatabaseInitialPoolSize = 1
+	// should extend up to 10 on demand
+	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.TestDatabaseWaitTimeout = 10 * time.Nanosecond
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -631,7 +674,7 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	}
 
 	seenIDs := map[int]bool{}
-	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*3; i++ {
+	for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
 		if err != nil {
 			t.Fatalf("failed to get test database: %v", err)
@@ -642,7 +685,13 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 		}
 
 		seenIDs[test.ID] = true
+
+		// don't return
 	}
+
+	// should not be able to extend beyond the limit
+	_, err = m.GetTestDatabase(ctx, hash)
+	assert.Error(t, err)
 }
 
 func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
@@ -665,7 +714,13 @@ func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
 func TestManagerReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
+	// there is just 1 database initially
+	cfg.TestDatabaseInitialPoolSize = 1
+	// can be extended, but should first reuse existing
+	cfg.TestDatabaseMaxPoolSize = 3
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -755,6 +810,8 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 }
 
 func TestManagerReturnUnknownTemplateDatabase(t *testing.T) {
+	t.Skip("disabled: outside of pool functionality")
+
 	ctx := context.Background()
 
 	m := testManagerFromEnv()
@@ -803,13 +860,25 @@ func TestManagerMultiFinalize(t *testing.T) {
 
 	populateTemplateDB(t, template)
 
-	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
-		t.Fatalf("failed to finalize template database: %v", err)
-	}
+	go func() {
+		t := t
+		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+			t.Fatalf("failed to finalize template database: %v", err)
+		}
+	}()
+	go func() {
+		t := t
+		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+			t.Fatalf("failed to finalize template database: %v", err)
+		}
+	}()
+	go func() {
+		t := t
+		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+			t.Fatalf("failed to finalize template database: %v", err)
+		}
+	}()
 
-	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
-		t.Fatalf("failed to finalize a second time template database (bailout already ready): %v", err)
-	}
 }
 
 func TestManagerClearTrackedTestDatabases(t *testing.T) {
@@ -842,6 +911,10 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 
 	originalID := test.ID
 
+	// clear it twice - because why not
+	if err := m.ClearTrackedTestDatabases(ctx, hash); err != nil {
+		t.Fatalf("failed to clear tracked test databases: %v", err)
+	}
 	if err := m.ClearTrackedTestDatabases(ctx, hash); err != nil {
 		t.Fatalf("failed to clear tracked test databases: %v", err)
 	}

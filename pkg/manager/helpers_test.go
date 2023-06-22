@@ -25,6 +25,11 @@ func testManagerFromEnvWithConfig() (*manager.Manager, manager.ManagerConfig) {
 	return manager.New(conf)
 }
 
+func testManagerWithConfig(conf manager.ManagerConfig) (*manager.Manager, manager.ManagerConfig) {
+	conf.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
+	return manager.New(conf)
+}
+
 // test helpers should never return errors, but are passed the *testing.T instance and fail if needed. It seems to be recommended helper functions are moved to a testing.go file...
 // https://medium.com/@povilasve/go-advanced-tips-tricks-a872503ac859
 // https://about.sourcegraph.com/go/advanced-testing-in-go
