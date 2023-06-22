@@ -159,12 +159,12 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.Database, error) {
+func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "initialize_template_db")
 	defer task.End()
 
 	if !m.Ready() {
-		return db.Database{}, ErrManagerNotReady
+		return db.TemplateDatabase{}, ErrManagerNotReady
 	}
 
 	dbName := m.makeTemplateDatabaseName(hash)
@@ -181,20 +181,22 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	defer unlock()
 
 	if !added {
-		return db.Database{}, ErrTemplateAlreadyInitialized
+		return db.TemplateDatabase{}, ErrTemplateAlreadyInitialized
 	}
 
 	reg := trace.StartRegion(ctx, "drop_and_create_db")
 	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
 		m.templates.RemoveUnsafe(ctx, hash)
 
-		return db.Database{}, err
+		return db.TemplateDatabase{}, err
 	}
 	reg.End()
 
-	return db.Database{
-		TemplateHash: hash,
-		Config:       templateConfig,
+	return db.TemplateDatabase{
+		Database: db.Database{
+			TemplateHash: hash,
+			Config:       templateConfig,
+		},
 	}, nil
 }
 
@@ -228,29 +230,29 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	return m.dropDatabase(ctx, dbName)
 }
 
-func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.Database, error) {
+func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "finalize_template_db")
 	defer task.End()
 
 	if !m.Ready() {
-		return db.Database{}, ErrManagerNotReady
+		return db.TemplateDatabase{}, ErrManagerNotReady
 	}
 
 	template, found := m.templates.Get(ctx, hash)
 	if !found {
-		return db.Database{}, ErrTemplateNotFound
+		return db.TemplateDatabase{}, ErrTemplateNotFound
 	}
 
 	state := template.GetState(ctx)
 
 	// early bailout if we are already ready (multiple calls)
 	if state == templates.TemplateStateFinalized {
-		return template.Database, ErrTemplateAlreadyInitialized
+		return db.TemplateDatabase{Database: template.Database}, ErrTemplateAlreadyInitialized
 	}
 
 	// Disallow transition from discarded to ready
 	if state == templates.TemplateStateDiscarded {
-		return db.Database{}, ErrTemplateDiscarded
+		return db.TemplateDatabase{}, ErrTemplateDiscarded
 	}
 
 	// Init a pool with this hash
@@ -262,7 +264,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	template.SetState(ctx, templates.TemplateStateFinalized)
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
-	return template.Database, nil
+	return db.TemplateDatabase{Database: template.Database}, nil
 }
 
 func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {

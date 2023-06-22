@@ -62,6 +62,7 @@ func BenchmarkGetDatabaseFromNewTemplate(b *testing.B) {
 			require.NoError(b, client.DiscardTemplate(ctx, newTemplateHash))
 		}
 	})
+
 }
 
 func BenchmarkGetDatabaseFromExistingTemplate(b *testing.B) {
@@ -109,8 +110,8 @@ func BenchmarkGetDatabaseFromExistingTemplate(b *testing.B) {
 			require.NoError(b, client.ReturnTestDatabase(ctx, newTemplateHash, dbConfig.ID))
 		}
 	})
-	require.NoError(b, client.DiscardTemplate(ctx, newTemplateHash))
 
+	b.Cleanup(func() { require.NoError(b, client.DiscardTemplate(ctx, newTemplateHash)) })
 }
 
 // nolint: deadcode

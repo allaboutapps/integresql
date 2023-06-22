@@ -67,7 +67,7 @@ func initTemplateDB(ctx context.Context, errs chan<- error, m *manager.Manager) 
 	errs <- nil
 }
 
-func populateTemplateDB(t *testing.T, template db.Database) {
+func populateTemplateDB(t *testing.T, template db.TemplateDatabase) {
 	t.Helper()
 
 	db, err := sql.Open("postgres", template.Config.ConnectionString())
