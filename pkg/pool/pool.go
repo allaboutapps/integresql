@@ -14,7 +14,7 @@ var (
 	ErrUnknownHash  = errors.New("no database pool exists for this hash")
 	ErrPoolFull     = errors.New("database pool is full")
 	ErrInvalidState = errors.New("database state is not valid for this operation")
-	ErrInvalidIndex = errors.New("invalid db.Database index (id)")
+	ErrInvalidIndex = errors.New("invalid database index (id)")
 	ErrTimeout      = errors.New("timeout when waiting for ready db")
 )
 
@@ -415,7 +415,6 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	// close all only if removal of all succeeded
 	pool.dbs = nil
 	close(pool.dirty)
-	close(pool.ready)
 
 	return nil
 	// dbHashPool unlocked

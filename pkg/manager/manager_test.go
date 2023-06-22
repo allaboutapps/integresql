@@ -641,6 +641,9 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 		// return testDB after usage
 		assert.NoError(t, m.ReturnTestDatabase(ctx, hash, test.ID))
 	}
+
+	// discard the template
+	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
 }
 
 func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
@@ -692,6 +695,9 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	// should not be able to extend beyond the limit
 	_, err = m.GetTestDatabase(ctx, hash)
 	assert.Error(t, err)
+
+	// discard the template
+	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
 }
 
 func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
