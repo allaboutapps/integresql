@@ -59,6 +59,19 @@ type dbHashPool struct {
 	sync.RWMutex
 }
 
+func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	// create a new dbHashPool
+	pool := newDBHashPool(p.maxPoolSize, initDBFunc, templateDB)
+	// and start the cleaning worker
+	p.enableworkerCleanUpDirtyDB(pool)
+
+	// pool is ready
+	p.pools[pool.templateDB.TemplateHash] = pool
+}
+
 func (p *DBPool) Stop() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -133,13 +146,7 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	pool := p.pools[hash]
 
 	if pool == nil {
-		// create a new dbHashPool
-		pool = newDBHashPool(p.maxPoolSize, initFunc, templateDB)
-		// and start the cleaning worker
-		p.enableworkerCleanUpDirtyDB(pool)
-
-		// pool is ready
-		p.pools[hash] = pool
+		p.InitHashPool(ctx, templateDB, initFunc)
 	}
 
 	p.mutex.Unlock()

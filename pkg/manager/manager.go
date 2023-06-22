@@ -253,8 +253,13 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 		return db.Database{}, ErrTemplateDiscarded
 	}
 
-	template.SetState(ctx, templates.TemplateStateFinalized)
+	// Init a pool with this hash
+	initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, template.Config.Database)
+	}
+	m.pool.InitHashPool(ctx, template.Database, initDBFunc)
 
+	template.SetState(ctx, templates.TemplateStateFinalized)
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
 	return template.Database, nil
@@ -414,7 +419,7 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 		for i := 0; i < count; i++ {
 			if err := m.createTestDatabaseFromTemplate(ctx, template); err != nil {
 				// TODO anna: error handling
-				fmt.Printf("integresql: failed to initialize DB: %v\n", err)
+				// fmt.Printf("integresql: failed to initialize DB: %v\n", err)
 			}
 		}
 	}()
