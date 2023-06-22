@@ -8,7 +8,6 @@ import (
 
 	"github.com/allaboutapps/integresql/internal/api"
 	"github.com/allaboutapps/integresql/pkg/manager"
-	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -133,7 +132,7 @@ func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 				return echo.ErrServiceUnavailable
 			case manager.ErrTemplateNotFound:
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			case pool.ErrUnknownHash:
+			case manager.ErrTestNotFound:
 				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
 			default:
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

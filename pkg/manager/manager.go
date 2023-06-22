@@ -19,8 +19,9 @@ var (
 	ErrManagerNotReady            = errors.New("manager not ready")
 	ErrTemplateAlreadyInitialized = errors.New("template is already initialized")
 	ErrTemplateNotFound           = errors.New("template not found")
-	ErrInvalidTemplateState       = errors.New("unexpected template state")
+	ErrTestNotFound               = errors.New("test database not found")
 	ErrTemplateDiscarded          = errors.New("template is discarded, can't be used")
+	ErrInvalidTemplateState       = errors.New("unexpected template state")
 )
 
 type Manager struct {
@@ -298,6 +299,18 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 	if errors.Is(err, pool.ErrTimeout) {
 		// on timeout we can try to extend the pool
 		testDB, err = m.pool.ExtendPool(ctx, template.Database)
+	} else if errors.Is(err, pool.ErrUnknownHash) {
+		// the pool has been removed, it needs to be reinitialized
+		initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+			return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
+		}
+		m.pool.InitHashPool(ctx, template.Database, initDBFunc)
+
+		// pool initalized, create one test db
+		testDB, err = m.pool.ExtendPool(ctx, template.Database)
+		// // and add new test DBs in the background
+		// m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
+
 	}
 
 	if err != nil {
@@ -314,18 +327,36 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 
 	// check if the template exists and is 'ready'
 	template, found := m.templates.Get(ctx, hash)
-	if !found {
-		return ErrTemplateNotFound
+	if found {
+		if template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout) !=
+			templates.TemplateStateFinalized {
+
+			return ErrInvalidTemplateState
+		}
+
+		// template is ready, we can return the testDB to the pool
+		if err := m.pool.ReturnTestDatabase(ctx, hash, id); err != nil {
+			if errors.Is(err, pool.ErrInvalidIndex) ||
+				errors.Is(err, pool.ErrUnknownHash) {
+				// simply drop this database below
+			} else {
+				// other error is an internal error
+				return err
+			}
+		}
 	}
 
-	if template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout) !=
-		templates.TemplateStateFinalized {
-
-		return ErrInvalidTemplateState
+	dbName := pool.MakeDBName(m.makeTemplateDatabaseName(hash), id)
+	exists, err := m.checkDatabaseExists(ctx, dbName)
+	if err != nil {
+		return err
 	}
 
-	// template is ready, we can return the testDB to the pool
-	return m.pool.ReturnTestDatabase(ctx, hash, id)
+	if !exists {
+		return ErrTestNotFound
+	}
+
+	return m.dropDatabase(ctx, dbName)
 }
 
 func (m *Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) error {
@@ -337,7 +368,12 @@ func (m *Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) er
 		return m.dropDatabase(ctx, testDB.Config.Database)
 	}
 
-	return m.pool.RemoveAllWithHash(ctx, hash, removeFunc)
+	err := m.pool.RemoveAllWithHash(ctx, hash, removeFunc)
+	if errors.Is(err, pool.ErrUnknownHash) {
+		return ErrTemplateNotFound
+	}
+
+	return err
 }
 
 func (m *Manager) ResetAllTracking(ctx context.Context) error {

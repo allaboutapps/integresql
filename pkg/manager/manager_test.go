@@ -816,8 +816,6 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 }
 
 func TestManagerReturnUnknownTemplateDatabase(t *testing.T) {
-	t.Skip("disabled: outside of pool functionality")
-
 	ctx := context.Background()
 
 	m := testManagerFromEnv()
@@ -866,24 +864,31 @@ func TestManagerMultiFinalize(t *testing.T) {
 
 	populateTemplateDB(t, template)
 
+	var wg sync.WaitGroup
+	wg.Add(3)
 	go func() {
+		defer wg.Done()
 		t := t
 		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
 			t.Fatalf("failed to finalize template database: %v", err)
 		}
 	}()
 	go func() {
+		defer wg.Done()
 		t := t
 		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
 			t.Fatalf("failed to finalize template database: %v", err)
 		}
 	}()
 	go func() {
+		defer wg.Done()
 		t := t
 		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
 			t.Fatalf("failed to finalize template database: %v", err)
 		}
 	}()
+
+	wg.Wait()
 
 }
 
@@ -921,9 +926,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 	if err := m.ClearTrackedTestDatabases(ctx, hash); err != nil {
 		t.Fatalf("failed to clear tracked test databases: %v", err)
 	}
-	if err := m.ClearTrackedTestDatabases(ctx, hash); err != nil {
-		t.Fatalf("failed to clear tracked test databases: %v", err)
-	}
+	assert.ErrorIs(t, m.ClearTrackedTestDatabases(ctx, hash), manager.ErrTemplateNotFound)
 
 	test, err = m.GetTestDatabase(ctx, hash)
 	if err != nil {

@@ -366,9 +366,10 @@ func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
 		},
 		ID: index,
 	}
-	// db name has an ID in suffix
+
+	// set DB name
 	templateName := pool.templateDB.Config.Database
-	dbName := fmt.Sprintf("%s_%03d", templateName, index)
+	dbName := MakeDBName(templateName, index)
 	newTestDB.Database.Config.Database = dbName
 
 	if err := pool.recreateDB(ctx, newTestDB, templateName); err != nil {
@@ -419,4 +420,9 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	return nil
 	// dbHashPool unlocked
 	// !
+}
+
+func MakeDBName(templateName string, id int) string {
+	// db name has an ID in suffix
+	return fmt.Sprintf("%s_%03d", templateName, id)
 }
