@@ -160,7 +160,7 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	// DBPool unlocked
 	// !
 
-	newTestDB, err := pool.extend(ctx)
+	newTestDB, err := pool.extend(ctx, dbStateReady)
 	if err != nil {
 		return err
 	}
@@ -189,15 +189,11 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// DBPool unlocked
 	// !
 
-	newTestDB, err := pool.extend(ctx)
+	// because we return it right away, we treat it as 'inUse'
+	newTestDB, err := pool.extend(ctx, dbStateInUse)
 	if err != nil {
 		return db.TestDatabase{}, err
 	}
-
-	// because we return it right away, we treat it as 'inUse'
-	pool.Lock()
-	pool.dbs[newTestDB.ID].state = dbStateInUse
-	pool.Unlock()
 
 	return newTestDB, nil
 }
@@ -346,7 +342,7 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 	}
 }
 
-func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
+func (pool *dbHashPool) extend(ctx context.Context, state dbState) (db.TestDatabase, error) {
 	// !
 	// dbHashPool locked
 	pool.Lock()
@@ -377,7 +373,7 @@ func (pool *dbHashPool) extend(ctx context.Context) (db.TestDatabase, error) {
 	}
 
 	// add new test DB to the pool
-	pool.dbs = append(pool.dbs, existingDB{state: dbStateReady, TestDatabase: newTestDB})
+	pool.dbs = append(pool.dbs, existingDB{state: state, TestDatabase: newTestDB})
 
 	return newTestDB, nil
 	// dbHashPool unlocked
