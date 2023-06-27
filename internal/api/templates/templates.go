@@ -55,6 +55,9 @@ func putFinalizeTemplate(s *api.Server) echo.HandlerFunc {
 
 		if _, err := s.Manager.FinalizeTemplateDatabase(ctx, hash); err != nil {
 			switch err {
+			case manager.ErrTemplateAlreadyInitialized:
+				// template is initialized, we ignore this error
+				return c.NoContent(http.StatusNoContent)
 			case manager.ErrManagerNotReady:
 				return echo.ErrServiceUnavailable
 			case manager.ErrTemplateNotFound:

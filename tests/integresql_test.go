@@ -5,7 +5,6 @@ package integresql_test
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"testing"
 	"time"
 
@@ -115,13 +114,4 @@ func BenchmarkGetDatabaseFromExistingTemplate(b *testing.B) {
 	})
 
 	b.Cleanup(func() { require.NoError(b, client.DiscardTemplate(ctx, newTemplateHash)) })
-}
-
-// nolint: deadcode
-func ignoreError(toIgnore error, err error) error {
-	if errors.Is(err, toIgnore) {
-		return nil
-	}
-
-	return err
 }
