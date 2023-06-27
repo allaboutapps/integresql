@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/trace"
+	"strings"
 	"sync"
 
 	"github.com/allaboutapps/integresql/pkg/db"
@@ -22,6 +23,7 @@ var (
 	ErrTestNotFound               = errors.New("test database not found")
 	ErrTemplateDiscarded          = errors.New("template is discarded, can't be used")
 	ErrInvalidTemplateState       = errors.New("unexpected template state")
+	ErrTestDBInUse                = errors.New("test database is in use, close the connection before dropping")
 )
 
 type Manager struct {
@@ -433,6 +435,10 @@ func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 	defer trace.StartRegion(ctx, "drop_db").End()
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
+		if strings.Contains(err.Error(), "is being accessed by other users") {
+			return ErrTestDBInUse
+		}
+
 		return err
 	}
 
@@ -487,8 +493,4 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 
 func (m *Manager) makeTemplateDatabaseName(hash string) string {
 	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
-}
-
-func (m *Manager) makeTestDatabaseName(hash string) string {
-	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TestDatabasePrefix, hash)
 }
