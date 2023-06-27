@@ -36,7 +36,7 @@ services:
     expose:
       - "5432"
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       POSTGRES_DB: *PSQL_DBNAME
       POSTGRES_USER: *PSQL_USER
