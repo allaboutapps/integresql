@@ -59,7 +59,6 @@ func BenchmarkGetDatabaseFromNewTemplate(b *testing.B) {
 			assert.Equal(b, 2, userCnt)
 			db.Close()
 
-			require.NoError(b, client.ReturnTestDatabase(ctx, newTemplateHash, dbConfig.ID))
 			require.NoError(b, client.DiscardTemplate(ctx, newTemplateHash))
 		}
 	})
@@ -107,6 +106,8 @@ func BenchmarkGetDatabaseFromExistingTemplate(b *testing.B) {
 			var userCnt int
 			require.NoError(b, row.Scan(&userCnt))
 			assert.Equal(b, 1, userCnt)
+			// keep the DB for some time before returning
+			time.Sleep(time.Second)
 			db.Close()
 
 			require.NoError(b, client.ReturnTestDatabase(ctx, newTemplateHash, dbConfig.ID))

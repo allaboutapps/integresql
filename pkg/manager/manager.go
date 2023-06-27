@@ -347,15 +347,19 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 		}
 
 		// template is ready, we can return the testDB to the pool
-		if err := m.pool.ReturnTestDatabase(ctx, hash, id); err != nil {
-			if errors.Is(err, pool.ErrInvalidIndex) ||
-				errors.Is(err, pool.ErrUnknownHash) {
-				// simply drop this database below
-			} else {
-				// other error is an internal error
-				return err
-			}
+		err := m.pool.ReturnTestDatabase(ctx, hash, id)
+		if err == nil {
+			return nil
 		}
+
+		if !(errors.Is(err, pool.ErrInvalidIndex) ||
+			errors.Is(err, pool.ErrUnknownHash)) {
+			// other error is an internal error
+			return err
+		}
+
+		// db is not tracked in the pool
+		// try to drop it if exists below
 	}
 
 	dbName := m.pool.MakeDBName(hash, id)
