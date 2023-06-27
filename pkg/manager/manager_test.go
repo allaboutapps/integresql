@@ -307,7 +307,7 @@ func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseWaitTimeout = 10 * time.Nanosecond
+	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
 	// no db created initally in the background
 	cfg.TestDatabaseInitialPoolSize = 0
 	m, _ := testManagerWithConfig(cfg)
@@ -340,7 +340,10 @@ func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
 func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TemplateFinalizeTimeout = 1 * time.Second
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -655,7 +658,7 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	cfg.TestDatabaseInitialPoolSize = 1
 	// should extend up to 10 on demand
 	cfg.TestDatabaseMaxPoolSize = 10
-	cfg.TestDatabaseWaitTimeout = 10 * time.Nanosecond
+	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -903,7 +906,11 @@ func TestManagerMultiFinalize(t *testing.T) {
 func TestManagerClearTrackedTestDatabases(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
+	// there are no db added in background
+	cfg.TestDatabaseInitialPoolSize = 0
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}

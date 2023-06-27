@@ -302,12 +302,12 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 
 	// if the template has been discarded/not initalized yet,
 	// no DB should be returned, even if already in the pool
-	state := template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout)
+	state := template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout)
 	if state != templates.TemplateStateFinalized {
 		return db.TestDatabase{}, ErrInvalidTemplateState
 	}
 
-	testDB, err := m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseWaitTimeout)
+	testDB, err := m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseGetTimeout)
 	if errors.Is(err, pool.ErrTimeout) {
 		// on timeout we can try to extend the pool
 		testDB, err = m.pool.ExtendPool(ctx, template.Database)
@@ -340,7 +340,7 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 	// check if the template exists and is 'ready'
 	template, found := m.templates.Get(ctx, hash)
 	if found {
-		if template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout) !=
+		if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) !=
 			templates.TemplateStateFinalized {
 
 			return ErrInvalidTemplateState
@@ -464,7 +464,7 @@ func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owne
 // createTestDatabaseFromTemplate adds a new test database in the pool (increasing its size) basing on the given template.
 // It waits until the template is ready.
 func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) error {
-	if template.WaitUntilFinalized(ctx, m.config.TestDatabaseWaitTimeout) != templates.TemplateStateFinalized {
+	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) != templates.TemplateStateFinalized {
 		// if the state changed in the meantime, return
 		return ErrInvalidTemplateState
 	}

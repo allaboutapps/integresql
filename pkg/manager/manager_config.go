@@ -18,7 +18,8 @@ type ManagerConfig struct {
 	TestDatabaseOwnerPassword   string
 	TestDatabaseInitialPoolSize int
 	TestDatabaseMaxPoolSize     int
-	TestDatabaseWaitTimeout     time.Duration
+	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
+	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database before extending the pool
 }
 
 func DefaultManagerConfigFromEnv() ManagerConfig {
@@ -55,6 +56,7 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseOwnerPassword:   util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
 		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
 		TestDatabaseMaxPoolSize:     util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
-		TestDatabaseWaitTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_WAIT_TIMEOUT_MS", 1000)),
+		TemplateFinalizeTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 100)),
+		TestDatabaseGetTimeout:      time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),
 	}
 }
