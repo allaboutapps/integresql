@@ -260,7 +260,8 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 		return db.TemplateDatabase{}, ErrTemplateNotFound
 	}
 
-	state := template.GetState(ctx)
+	state, lockedTemplate := template.GetStateWithLock(ctx)
+	defer lockedTemplate.Unlock()
 
 	// early bailout if we are already ready (multiple calls)
 	if state == templates.TemplateStateFinalized {
@@ -278,7 +279,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	}
 	m.pool.InitHashPool(ctx, template.Database, initDBFunc)
 
-	template.SetState(ctx, templates.TemplateStateFinalized)
+	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
 	return db.TemplateDatabase{Database: template.Database}, nil

@@ -73,3 +73,26 @@ func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration
 	}
 	return newState
 }
+
+func (t *Template) GetStateWithLock(ctx context.Context) (TemplateState, lockedTemplate) {
+	t.mutex.Lock()
+
+	return t.state, lockedTemplate{t: t}
+}
+
+type lockedTemplate struct {
+	t *Template
+}
+
+func (l lockedTemplate) Unlock() {
+	l.t.mutex.Unlock()
+}
+
+func (l lockedTemplate) SetState(ctx context.Context, newState TemplateState) {
+	if l.t.state == newState {
+		return
+	}
+
+	l.t.state = newState
+	l.t.cond.Broadcast()
+}
