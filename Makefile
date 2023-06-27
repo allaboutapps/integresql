@@ -10,6 +10,9 @@ gobuild:
 lint:
 	golangci-lint run --fast
 
+bench: ##- Run tests, output by package, print coverage.
+	@go test -benchmem=false -run=./... -bench . github.com/allaboutapps/integresql/tests -race -count=4 -v
+
 # https://github.com/gotestyourself/gotestsum#format
 # w/o cache https://github.com/golang/go/issues/24573 - see "go help testflag"
 # note that these tests should not run verbose by default (e.g. use your IDE for this)
