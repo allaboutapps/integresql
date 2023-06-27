@@ -37,12 +37,21 @@ type Manager struct {
 }
 
 func New(config ManagerConfig) (*Manager, ManagerConfig) {
+
+	var testDBPrefix string
+	if config.DatabasePrefix != "" {
+		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.DatabasePrefix)
+	}
+	if config.TestDatabasePrefix != "" {
+		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.TestDatabasePrefix)
+	}
+
 	m := &Manager{
 		config:        config,
 		db:            nil,
 		wg:            sync.WaitGroup{},
 		templates:     templates.NewCollection(),
-		pool:          pool.NewDBPool(config.TestDatabaseMaxPoolSize),
+		pool:          pool.NewDBPool(config.TestDatabaseMaxPoolSize, testDBPrefix),
 		connectionCtx: context.TODO(),
 	}
 
@@ -346,7 +355,7 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 		}
 	}
 
-	dbName := pool.MakeDBName(m.makeTemplateDatabaseName(hash), id)
+	dbName := m.pool.MakeDBName(hash, id)
 	exists, err := m.checkDatabaseExists(ctx, dbName)
 	if err != nil {
 		return err
@@ -477,4 +486,8 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 
 func (m *Manager) makeTemplateDatabaseName(hash string) string {
 	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+}
+
+func (m *Manager) makeTestDatabaseName(hash string) string {
+	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TestDatabasePrefix, hash)
 }

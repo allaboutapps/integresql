@@ -15,7 +15,7 @@ func TestPoolAddGet(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	p := pool.NewDBPool(2)
+	p := pool.NewDBPool(2, "prefix_")
 
 	hash1 := "h1"
 	hash2 := "h2"
@@ -23,7 +23,7 @@ func TestPoolAddGet(t *testing.T) {
 		TemplateHash: hash1,
 		Config: db.DatabaseConfig{
 			Username: "ich",
-			Database: "template_name",
+			Database: "templateDBname",
 		},
 	}
 	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
@@ -40,7 +40,7 @@ func TestPoolAddGet(t *testing.T) {
 	// get it
 	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.NoError(t, err)
-	assert.Equal(t, "template_name_000", testDB.Database.Config.Database)
+	assert.Equal(t, "prefix_h1_000", testDB.Database.Config.Database)
 	assert.Equal(t, "ich", testDB.Database.Config.Username)
 
 	// add for h2
@@ -83,7 +83,7 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize)
+	p := pool.NewDBPool(maxPoolSize, "")
 
 	var wg sync.WaitGroup
 	sleepDuration := 100 * time.Millisecond
@@ -149,7 +149,7 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize)
+	p := pool.NewDBPool(maxPoolSize, "")
 
 	var wg sync.WaitGroup
 
@@ -203,7 +203,7 @@ func TestPoolRemoveAll(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize)
+	p := pool.NewDBPool(maxPoolSize, "")
 
 	// add DBs sequentially
 	for i := 0; i < maxPoolSize; i++ {

@@ -33,13 +33,16 @@ type DBPool struct {
 	mutex sync.RWMutex
 
 	maxPoolSize int
+
+	dbNamePrefix string
 }
 
-func NewDBPool(maxPoolSize int) *DBPool {
+func NewDBPool(maxPoolSize int, testDBNamePrefix string) *DBPool {
 	return &DBPool{
 		pools: make(map[string]*dbHashPool),
 
-		maxPoolSize: maxPoolSize,
+		maxPoolSize:  maxPoolSize,
+		dbNamePrefix: testDBNamePrefix,
 	}
 }
 
@@ -160,7 +163,7 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	// DBPool unlocked
 	// !
 
-	newTestDB, err := pool.extend(ctx, dbStateReady)
+	newTestDB, err := pool.extend(ctx, dbStateReady, p.dbNamePrefix)
 	if err != nil {
 		return err
 	}
@@ -190,7 +193,7 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// !
 
 	// because we return it right away, we treat it as 'inUse'
-	newTestDB, err := pool.extend(ctx, dbStateInUse)
+	newTestDB, err := pool.extend(ctx, dbStateInUse, p.dbNamePrefix)
 	if err != nil {
 		return db.TestDatabase{}, err
 	}
@@ -342,7 +345,7 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 	}
 }
 
-func (pool *dbHashPool) extend(ctx context.Context, state dbState) (db.TestDatabase, error) {
+func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string) (db.TestDatabase, error) {
 	// !
 	// dbHashPool locked
 	pool.Lock()
@@ -364,11 +367,11 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState) (db.TestDatab
 	}
 
 	// set DB name
-	templateName := pool.templateDB.Config.Database
-	dbName := MakeDBName(templateName, index)
+	dbName := makeDBName(testDBPrefix, pool.templateDB.TemplateHash, index)
 	newTestDB.Database.Config.Database = dbName
 
-	if err := pool.recreateDB(ctx, newTestDB, templateName); err != nil {
+	templateDB := pool.templateDB.Config.Database
+	if err := pool.recreateDB(ctx, newTestDB, templateDB); err != nil {
 		return db.TestDatabase{}, err
 	}
 
@@ -418,7 +421,14 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	// !
 }
 
-func MakeDBName(templateName string, id int) string {
+func (p *DBPool) MakeDBName(hash string, id int) string {
+	p.mutex.RLock()
+	p.mutex.RUnlock()
+
+	return makeDBName(p.dbNamePrefix, hash, id)
+}
+
+func makeDBName(testDBPrefix string, hash string, id int) string {
 	// db name has an ID in suffix
-	return fmt.Sprintf("%s_%03d", templateName, id)
+	return fmt.Sprintf("%s%s_%03d", testDBPrefix, hash, id)
 }

@@ -3,6 +3,7 @@ package manager_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -866,29 +867,36 @@ func TestManagerMultiFinalize(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(3)
-	go func() {
-		defer wg.Done()
+
+	errChan := make(chan error, 3)
+	finalize := func(errChan chan<- error) {
 		t := t
-		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		_, err := m.FinalizeTemplateDatabase(ctx, hash)
+		if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
+			errChan <- err
+			return
+		}
+		if err != nil {
 			t.Fatalf("failed to finalize template database: %v", err)
 		}
+	}
+	go func() {
+		defer wg.Done()
+		finalize(errChan)
 	}()
 	go func() {
 		defer wg.Done()
-		t := t
-		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
-			t.Fatalf("failed to finalize template database: %v", err)
-		}
+		finalize(errChan)
 	}()
 	go func() {
 		defer wg.Done()
-		t := t
-		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
-			t.Fatalf("failed to finalize template database: %v", err)
-		}
+		finalize(errChan)
 	}()
 
 	wg.Wait()
+
+	errCount := len(errChan)
+	assert.Equal(t, 2, errCount)
 
 }
 
