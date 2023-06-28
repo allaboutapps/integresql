@@ -34,8 +34,8 @@ type Manager struct {
 	templates *templates.Collection
 	pool      *pool.DBPool
 
-	connectionCtx       context.Context
-	cancelConnectionCtx func()
+	connectionCtx       context.Context // DB connection context used for adding initial DBs in background
+	cancelConnectionCtx func()          // Cancel function for DB connection context
 }
 
 func New(config ManagerConfig) (*Manager, ManagerConfig) {
@@ -287,6 +287,8 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	return db.TemplateDatabase{Database: template.Database}, nil
 }
 
+// GetTestDatabase tries to get a ready test DB from an existing pool.
+// If no DB is ready after the preconfigured timeout, it tries to extend the pool and therefore create a new DB.
 func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "get_test_db")
 	defer task.End()
@@ -318,7 +320,9 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		task.End()
 
 	} else if errors.Is(err, pool.ErrUnknownHash) {
-		// the pool has been removed, it needs to be reinitialized
+		// Template exists, but the pool is not there -
+		// it must have been removed.
+		// It needs to be reinitialized.
 		initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
 			return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
 		}
@@ -471,7 +475,7 @@ func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owne
 }
 
 // createTestDatabaseFromTemplate adds a new test database in the pool (increasing its size) basing on the given template.
-// It waits until the template is ready.
+// It waits until the template is finalized.
 func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) error {
 	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) != templates.TemplateStateFinalized {
 		// if the state changed in the meantime, return

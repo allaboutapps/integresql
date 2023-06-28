@@ -19,12 +19,12 @@ var (
 	ErrTimeout      = errors.New("timeout when waiting for ready db")
 )
 
-type dbState int
+type dbState int // Indicates a current DB state.
 
 const (
-	dbStateReady = iota
-	dbStateInUse = iota
-	dbStateDirty = iota
+	dbStateReady dbState = iota // Initialized according to a template and ready to be picked up.
+	dbStateInUse                // Currently in use, can't be reused.
+	dbStateDirty                // Returned to the pool, waiting for the cleaning.
 )
 
 const stopWorkerMessage int = -1
@@ -35,7 +35,7 @@ type DBPool struct {
 
 	maxPoolSize  int
 	dbNamePrefix string
-	numOfWorkers int
+	numOfWorkers int // Number of cleaning workers (each hash pool has enables this number of workers)
 }
 
 func NewDBPool(maxPoolSize int, testDBNamePrefix string, numberOfWorkers int) *DBPool {
@@ -48,6 +48,7 @@ func NewDBPool(maxPoolSize int, testDBNamePrefix string, numberOfWorkers int) *D
 	}
 }
 
+// RecreateDBFunc callback executed when a pool is extended or the DB cleaned up by a worker.
 type RecreateDBFunc func(ctx context.Context, testDB db.TestDatabase, templateName string) error
 
 type existingDB struct {
@@ -55,10 +56,11 @@ type existingDB struct {
 	db.TestDatabase
 }
 
+// dbHashPool holds a test DB pool for a certain hash. Each dbHashPool is running cleanup workers in background.
 type dbHashPool struct {
 	dbs   []existingDB
 	ready chan int // ID of initalized DBs according to a template, ready to pick them up
-	dirty chan int // ID of returned DBs, need to be initalized again to reuse them
+	dirty chan int // ID of returned DBs, need to be recreated to reuse them
 
 	recreateDB RecreateDBFunc
 	templateDB db.Database
@@ -67,6 +69,7 @@ type dbHashPool struct {
 	numOfWorkers int
 }
 
+// InitHashPool creates a new pool with a given template hash and starts the cleanup workers.
 func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -98,6 +101,9 @@ func (p *DBPool) Stop() {
 
 }
 
+// GetTestDatabase picks up a ready to use test DB. It waits the given timeout until a DB is available.
+// If there is no DB ready and time elapses, ErrTimeout is returned.
+// Otherwise, the obtained test DB is marked as 'InUse' and can be reused only if returned to the pool.
 func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
 
 	// !
@@ -154,6 +160,9 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 	// !
 }
 
+// AddTestDatabase adds a new test DB to the pool and creates it according to the template.
+// The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
+// If the pool size has already reached MAX, ErrPoolFull is returned.
 func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, initFunc RecreateDBFunc) error {
 	hash := templateDB.TemplateHash
 
@@ -183,6 +192,9 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	return nil
 }
 
+// AddTestDatabase adds a new test DB to the pool, creates it according to the template, and returns it right away to the caller.
+// The new test DB is marked as 'IsUse' and won't be picked up with GetTestDatabase, until it's returned to the pool.
+// If the pool size has already reached MAX, ErrPoolFull is returned.
 func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.TestDatabase, error) {
 	hash := templateDB.TemplateHash
 
@@ -212,6 +224,9 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	return newTestDB, nil
 }
 
+// ReturnTestDatabase is used to return a DB that is currently 'InUse' to the pool.
+// After successful return, the test DB is cleaned up in the background by a worker.
+// If the test DB is in a different state than 'InUse', ErrInvalidState is returned.
 func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 
 	// !
@@ -259,6 +274,8 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	// !
 }
 
+// RemoveAllWithHash removes a pool with a given template hash.
+// All background workers belonging to this pool are stopped.
 func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc func(db.TestDatabase) error) error {
 
 	// !
@@ -285,6 +302,7 @@ func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc 
 	// !
 }
 
+// RemoveAll removes all tracked pools.
 func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
 	// !
 	// DBPool locked
@@ -325,6 +343,8 @@ func (pool *dbHashPool) enableWorker(numberOfWorkers int) {
 	}
 }
 
+// workerCleanUpDirtyDB reads 'dirty' channel and cleans up a test DB with the received index.
+// When the DB is recreated according to a template, its index goes to the 'ready' channel.
 func (pool *dbHashPool) workerCleanUpDirtyDB() {
 
 	templateName := pool.templateDB.Config.Database
@@ -459,6 +479,7 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	// !
 }
 
+// MakeDBName makes a test DB name with the configured prefix, template hash and ID of the DB.
 func (p *DBPool) MakeDBName(hash string, id int) string {
 	p.mutex.RLock()
 	p.mutex.RUnlock()
