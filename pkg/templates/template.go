@@ -35,6 +35,7 @@ func NewTemplate(database db.Database) *Template {
 	return t
 }
 
+// GetState locks the template and checks its state.
 func (t *Template) GetState(ctx context.Context) TemplateState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
@@ -42,6 +43,7 @@ func (t *Template) GetState(ctx context.Context) TemplateState {
 	return t.state
 }
 
+// SetState sets the desired state and broadcasts the change to whoever is waiting for it.
 func (t *Template) SetState(ctx context.Context, newState TemplateState) {
 	if t.GetState(ctx) == newState {
 		return
@@ -54,6 +56,9 @@ func (t *Template) SetState(ctx context.Context, newState TemplateState) {
 	t.cond.Broadcast()
 }
 
+// WaitUntilFinalized checks the current template state and returns directly if it's 'Finalized'.
+// If it's not, the function waits the given timeout until the template state changes.
+// On timeout, the old state is returned, otherwise - the new state.
 func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration) (exitState TemplateState) {
 	currentState := t.GetState(ctx)
 	if currentState == TemplateStateFinalized {
@@ -74,6 +79,8 @@ func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration
 	return newState
 }
 
+// GetStateWithLock gets the current state leaving the template locked.
+// REMEMBER to unlock it when you no longer need it locked.
 func (t *Template) GetStateWithLock(ctx context.Context) (TemplateState, lockedTemplate) {
 	t.mutex.Lock()
 
@@ -84,10 +91,15 @@ type lockedTemplate struct {
 	t *Template
 }
 
-func (l lockedTemplate) Unlock() {
-	l.t.mutex.Unlock()
+// Unlock releases the locked template.
+func (l *lockedTemplate) Unlock() {
+	if l.t != nil {
+		l.t.mutex.Unlock()
+		l.t = nil
+	}
 }
 
+// SetState sets a new state of the locked template (without acquiring the lock again).
 func (l lockedTemplate) SetState(ctx context.Context, newState TemplateState) {
 	if l.t.state == newState {
 		return
