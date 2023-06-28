@@ -307,10 +307,16 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, ErrInvalidTemplateState
 	}
 
+	ctx, task = trace.NewTask(ctx, "get_with_timeout")
 	testDB, err := m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseGetTimeout)
+	task.End()
+
 	if errors.Is(err, pool.ErrTimeout) {
 		// on timeout we can try to extend the pool
+		ctx, task := trace.NewTask(ctx, "extend_pool_on_demand")
 		testDB, err = m.pool.ExtendPool(ctx, template.Database)
+		task.End()
+
 	} else if errors.Is(err, pool.ErrUnknownHash) {
 		// the pool has been removed, it needs to be reinitialized
 		initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
@@ -333,6 +339,9 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 }
 
 func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
+	ctx, task := trace.NewTask(ctx, "return_test_db")
+	defer task.End()
+
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}

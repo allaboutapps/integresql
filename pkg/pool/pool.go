@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/trace"
 	"sync"
 	"time"
 
@@ -99,7 +100,9 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 
 	// !
 	// DBPool locked
+	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
 	p.mutex.RLock()
+	reg.End()
 	pool := p.pools[hash]
 
 	if pool == nil {
@@ -123,8 +126,10 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 
 	// !
 	// dbHashPool locked
+	reg = trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
 	defer pool.Unlock()
+	reg.End()
 
 	// sanity check, should never happen
 	if index < 0 || index >= len(pool.dbs) {
@@ -152,7 +157,9 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 
 	// !
 	// DBPool locked
+	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
 	p.mutex.Lock()
+	reg.End()
 	pool := p.pools[hash]
 
 	if pool == nil {
@@ -179,7 +186,9 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 
 	// !
 	// DBPool locked
+	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
 	p.mutex.Lock()
+	reg.End()
 	pool := p.pools[hash]
 
 	if pool == nil {
@@ -205,7 +214,9 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 
 	// !
 	// DBPool locked
+	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
 	p.mutex.Lock()
+	reg.End()
 	pool := p.pools[hash]
 
 	if pool == nil {
@@ -216,8 +227,10 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 
 	// !
 	// dbHashPool locked
+	reg = trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
 	defer pool.Unlock()
+	reg.End()
 
 	p.mutex.Unlock()
 	// DBPool unlocked
@@ -317,7 +330,10 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 			break
 		}
 
+		reg := trace.StartRegion(ctx, "worker_wait_for_rlock_hash_pool")
 		pool.RLock()
+		reg.End()
+
 		if dirtyID < 0 || dirtyID >= len(pool.dbs) {
 			// sanity check, should never happen
 			pool.RUnlock()
@@ -330,26 +346,34 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 			continue
 		}
 
+		reg = trace.StartRegion(ctx, "worker_cleanup")
 		if err := pool.recreateDB(ctx, testDB.TestDatabase, templateName); err != nil {
 			// TODO anna: error handling
 			fmt.Printf("integresql: failed to clean up DB: %v\n", err)
 			continue
 		}
 
+		reg = trace.StartRegion(ctx, "worker_wait_for_lock_hash_pool")
 		pool.Lock()
+		reg.End()
+
 		testDB.state = dbStateReady
 		pool.dbs[dirtyID] = testDB
+
 		pool.Unlock()
 
 		pool.ready <- testDB.ID
+		reg.End()
 	}
 }
 
 func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string) (db.TestDatabase, error) {
 	// !
 	// dbHashPool locked
+	reg := trace.StartRegion(ctx, "extend_wait_for_lock_hash_pool")
 	pool.Lock()
 	defer pool.Unlock()
+	reg.End()
 
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
