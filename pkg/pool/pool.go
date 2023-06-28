@@ -327,13 +327,14 @@ func (pool *dbHashPool) enableWorker(numberOfWorkers int) {
 
 func (pool *dbHashPool) workerCleanUpDirtyDB() {
 
-	ctx := context.Background()
 	templateName := pool.templateDB.Config.Database
 
 	for dirtyID := range pool.dirty {
 		if dirtyID == stopWorkerMessage {
 			break
 		}
+
+		ctx, task := trace.NewTask(context.Background(), "worker_cleanup_task")
 
 		reg := trace.StartRegion(ctx, "worker_wait_for_rlock_hash_pool")
 		pool.RLock()
@@ -342,12 +343,14 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 		if dirtyID < 0 || dirtyID >= len(pool.dbs) {
 			// sanity check, should never happen
 			pool.RUnlock()
+			task.End()
 			continue
 		}
 		testDB := pool.dbs[dirtyID]
 		pool.RUnlock()
 
 		if testDB.state != dbStateDirty {
+			task.End()
 			continue
 		}
 
@@ -355,6 +358,8 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 		if err := pool.recreateDB(ctx, testDB.TestDatabase, templateName); err != nil {
 			// TODO anna: error handling
 			fmt.Printf("integresql: failed to clean up DB: %v\n", err)
+
+			task.End()
 			continue
 		}
 
@@ -368,7 +373,9 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 		pool.Unlock()
 
 		pool.ready <- testDB.ID
+
 		reg.End()
+		task.End()
 	}
 }
 
