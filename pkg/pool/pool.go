@@ -33,17 +33,18 @@ type DBPool struct {
 	pools map[string]*dbHashPool // map[hash]
 	mutex sync.RWMutex
 
-	maxPoolSize int
-
+	maxPoolSize  int
 	dbNamePrefix string
+	numOfWorkers int
 }
 
-func NewDBPool(maxPoolSize int, testDBNamePrefix string) *DBPool {
+func NewDBPool(maxPoolSize int, testDBNamePrefix string, numberOfWorkers int) *DBPool {
 	return &DBPool{
 		pools: make(map[string]*dbHashPool),
 
 		maxPoolSize:  maxPoolSize,
 		dbNamePrefix: testDBNamePrefix,
+		numOfWorkers: numberOfWorkers,
 	}
 }
 
@@ -62,7 +63,8 @@ type dbHashPool struct {
 	recreateDB RecreateDBFunc
 	templateDB db.Database
 	sync.RWMutex
-	wg sync.WaitGroup
+	wg           sync.WaitGroup
+	numOfWorkers int
 }
 
 func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
@@ -74,9 +76,9 @@ func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initD
 
 func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
 	// create a new dbHashPool
-	pool := newDBHashPool(p.maxPoolSize, initDBFunc, templateDB)
+	pool := newDBHashPool(p.maxPoolSize, initDBFunc, templateDB, p.numOfWorkers)
 	// and start the cleaning worker
-	pool.enableWorker()
+	pool.enableWorker(p.numOfWorkers)
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
@@ -302,22 +304,25 @@ func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase)
 	// !
 }
 
-func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Database) *dbHashPool {
+func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Database, numberOfWorkers int) *dbHashPool {
 	return &dbHashPool{
-		dbs:        make([]existingDB, 0, maxPoolSize),
-		ready:      make(chan int, maxPoolSize),
-		dirty:      make(chan int, maxPoolSize),
-		recreateDB: recreateDB,
-		templateDB: templateDB,
+		dbs:          make([]existingDB, 0, maxPoolSize),
+		ready:        make(chan int, maxPoolSize),
+		dirty:        make(chan int, maxPoolSize),
+		recreateDB:   recreateDB,
+		templateDB:   templateDB,
+		numOfWorkers: numberOfWorkers,
 	}
 }
 
-func (pool *dbHashPool) enableWorker() {
-	pool.wg.Add(1)
-	go func() {
-		defer pool.wg.Done()
-		pool.workerCleanUpDirtyDB()
-	}()
+func (pool *dbHashPool) enableWorker(numberOfWorkers int) {
+	for i := 0; i < numberOfWorkers; i++ {
+		pool.wg.Add(1)
+		go func() {
+			defer pool.wg.Done()
+			pool.workerCleanUpDirtyDB()
+		}()
+	}
 }
 
 func (pool *dbHashPool) workerCleanUpDirtyDB() {
@@ -411,7 +416,9 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 
 	// stop the worker
 	// we don't close here because if the remove operation fails, we want to be able to repeat it
-	pool.dirty <- stopWorkerMessage
+	for i := 0; i < pool.numOfWorkers; i++ {
+		pool.dirty <- stopWorkerMessage
+	}
 	pool.wg.Wait()
 
 	// !

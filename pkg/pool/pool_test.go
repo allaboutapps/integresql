@@ -15,7 +15,7 @@ func TestPoolAddGet(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	p := pool.NewDBPool(2, "prefix_")
+	p := pool.NewDBPool(2, "prefix_", 4)
 
 	hash1 := "h1"
 	hash2 := "h2"
@@ -83,7 +83,7 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize, "")
+	p := pool.NewDBPool(maxPoolSize, "", 4)
 
 	var wg sync.WaitGroup
 	sleepDuration := 100 * time.Millisecond
@@ -149,7 +149,7 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize, "")
+	p := pool.NewDBPool(maxPoolSize, "", 4)
 
 	var wg sync.WaitGroup
 
@@ -203,7 +203,7 @@ func TestPoolRemoveAll(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize, "")
+	p := pool.NewDBPool(maxPoolSize, "", 4)
 
 	// add DBs sequentially
 	for i := 0; i < maxPoolSize; i++ {
@@ -225,6 +225,70 @@ func TestPoolRemoveAll(t *testing.T) {
 	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, testDB.ID)
+
+	p.Stop()
+}
+
+func TestPoolInit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	hash1 := "h1"
+	templateDB1 := db.Database{
+		TemplateHash: hash1,
+	}
+
+	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+		t.Log("(re)create ", testDB.Database)
+		return nil
+	}
+
+	maxPoolSize := 100
+	numOfWorkers := 150
+	p := pool.NewDBPool(maxPoolSize, "", numOfWorkers)
+
+	// we will test 2 ways of adding new DBs
+	for i := 0; i < maxPoolSize/2; i++ {
+		// add and get freshly added DB
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
+		_, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
+		assert.NoError(t, err)
+
+		// extend pool (= add and get)
+		_, err = p.ExtendPool(ctx, templateDB1)
+		assert.NoError(t, err)
+	}
+
+	// there should be no more free DBs
+	_, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 10*time.Millisecond)
+	assert.ErrorIs(t, err, pool.ErrTimeout)
+
+	var wg sync.WaitGroup
+	// now return them all
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		maxPoolSize := maxPoolSize
+		templateHash := templateDB1.TemplateHash
+		for i := 0; i < maxPoolSize; i++ {
+			assert.NoError(t, p.ReturnTestDatabase(ctx, templateHash, i))
+		}
+	}()
+
+	// and check that they can be get again
+	// = the workers cleaned them up
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		maxPoolSize := maxPoolSize
+		templateHash := templateDB1.TemplateHash
+		for i := 0; i < maxPoolSize; i++ {
+			_, err := p.GetTestDatabase(ctx, templateHash, 10*time.Millisecond)
+			assert.NoError(t, err)
+		}
+	}()
+
+	wg.Wait()
 
 	p.Stop()
 }

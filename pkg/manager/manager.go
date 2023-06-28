@@ -53,7 +53,7 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		db:            nil,
 		wg:            sync.WaitGroup{},
 		templates:     templates.NewCollection(),
-		pool:          pool.NewDBPool(config.TestDatabaseMaxPoolSize, testDBPrefix),
+		pool:          pool.NewDBPool(config.TestDatabaseMaxPoolSize, testDBPrefix, config.NumOfCleaningWorkers),
 		connectionCtx: context.TODO(),
 	}
 

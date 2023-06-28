@@ -20,6 +20,7 @@ type ManagerConfig struct {
 	TestDatabaseMaxPoolSize     int
 	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
 	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database before extending the pool
+	NumOfCleaningWorkers        int           // Number of pool workers cleaning up dirty DBs
 }
 
 func DefaultManagerConfigFromEnv() ManagerConfig {
@@ -58,5 +59,6 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseMaxPoolSize:     util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
 		TemplateFinalizeTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 2000)),
 		TestDatabaseGetTimeout:      time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),
+		NumOfCleaningWorkers:        util.GetEnvAsInt("INTEGRESQL_NUM_OF_CLEANING_WORKERS", 3),
 	}
 }
