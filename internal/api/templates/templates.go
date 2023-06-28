@@ -8,6 +8,7 @@ import (
 
 	"github.com/allaboutapps/integresql/internal/api"
 	"github.com/allaboutapps/integresql/pkg/manager"
+	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -109,6 +110,8 @@ func getTestDatabase(s *api.Server) echo.HandlerFunc {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
 			case manager.ErrTemplateDiscarded:
 				return echo.NewHTTPError(http.StatusGone, "template was just discarded")
+			case pool.ErrPoolFull:
+				return echo.NewHTTPError(http.StatusInsufficientStorage, "pool is full and can't be extended")
 			default:
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
