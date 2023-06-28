@@ -10,6 +10,7 @@ import (
 
 var ErrTimeout = errors.New("timeout while waiting for operation to complete")
 
+// WaitWithTimeout waits for the operation to complete of returns the ErrTimeout.
 func WaitWithTimeout[T any](ctx context.Context, timeout time.Duration, operation func(context.Context) (T, error)) (T, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -32,6 +33,8 @@ func WaitWithTimeout[T any](ctx context.Context, timeout time.Duration, operatio
 	}
 }
 
+// WaitWithCancellableCtx runs the operation tracking the context state.
+// If the given context is cancelled, the function returns directly with ErrTimeout.
 func WaitWithCancellableCtx[T any](ctx context.Context, operation func(context.Context) (T, error)) (T, error) {
 
 	resChan := make(chan T, 1)
