@@ -141,8 +141,11 @@ RUN make build
 # --- Stage: integresql
 ### -----------------------
 
-# https://github.com/GoogleContainerTools/distroless
-FROM gcr.io/distroless/base as integresql
+# Distroless images are minimal and lack shell access.
+# https://github.com/GoogleContainerTools/distroless/blob/master/base/README.md
+# The :debug image provides a busybox shell to enter.
+# https://github.com/GoogleContainerTools/distroless#debug-images
+FROM gcr.io/distroless/base-debian11:debug as integresql
 COPY --from=builder-integresql /app/bin/integresql /
 # Note that cmd is not supported with these kind of images, no shell included
 # see https://github.com/GoogleContainerTools/distroless/issues/62
