@@ -29,8 +29,8 @@ alias:
   # The full uniquely tagged app image name
   - &IMAGE_DEPLOY_ID ${DRONE_REPO,,}:${DRONE_COMMIT_SHA}
 
-    # Defines which branches will trigger a docker image push our Google Cloud Registry (tags are always published)
-    - &GCR_PUBLISH_BRANCHES [dev, staging, master]
+  # Defines which branches will trigger a docker image push our Google Cloud Registry (tags are always published)
+  - &GCR_PUBLISH_BRANCHES [dev, staging, master]
 
   #   # Docker registry publish default settings
   #   - &GCR_REGISTRY_SETTINGS
@@ -250,34 +250,34 @@ pipeline:
   # PUBLISH
   # ---------------------------------------------------------------------------
 
-    # Built a allowed branch? Push to cloud registry
-    "publish ${DRONE_BRANCH}_${DRONE_COMMIT_SHA:0:10}":
-      group: publish
-      <<: *GCR_REGISTRY_SETTINGS
-      tags:
-        - build_${DRONE_BUILD_NUMBER}
-        - ${DRONE_BRANCH/\//-}_${DRONE_COMMIT_SHA:0:10}
-        - *IMAGE_DEPLOY_TAG
-        - latest
-        - ${DRONE_BRANCH/\//-}
-        - '${DRONE_COMMIT_SHA:0:10}'
-      when:
-        branch: *GCR_PUBLISH_BRANCHES
-        event: *BUILD_EVENTS
+  # Built a allowed branch? Push to cloud registry
+  "publish ${DRONE_BRANCH}_${DRONE_COMMIT_SHA:0:10}":
+    group: publish
+    <<: *GCR_REGISTRY_SETTINGS
+    tags:
+      - build_${DRONE_BUILD_NUMBER}
+      - ${DRONE_BRANCH/\//-}_${DRONE_COMMIT_SHA:0:10}
+      - *IMAGE_DEPLOY_TAG
+      - latest
+      - ${DRONE_BRANCH/\//-}
+      - '${DRONE_COMMIT_SHA:0:10}'
+    when:
+      branch: *GCR_PUBLISH_BRANCHES
+      event: *BUILD_EVENTS
 
-    # Built a tag? Push to cloud registry
-    "publish tag_${DRONE_COMMIT_SHA:0:10}":
-      group: publish
-      <<: *GCR_REGISTRY_SETTINGS
-      tags:
-        - build_${DRONE_BUILD_NUMBER}
-        - tag_${DRONE_COMMIT_SHA:0:10}
-        - *IMAGE_DEPLOY_TAG
-        - latest
-        - ${DRONE_TAG}
-        - ${DRONE_COMMIT_SHA:0:10}
-      when:
-        event: tag
+  # Built a tag? Push to cloud registry
+  "publish tag_${DRONE_COMMIT_SHA:0:10}":
+    group: publish
+    <<: *GCR_REGISTRY_SETTINGS
+    tags:
+      - build_${DRONE_BUILD_NUMBER}
+      - tag_${DRONE_COMMIT_SHA:0:10}
+      - *IMAGE_DEPLOY_TAG
+      - latest
+      - ${DRONE_TAG}
+      - ${DRONE_COMMIT_SHA:0:10}
+    when:
+      event: tag
 
   # ---------------------------------------------------------------------------
   # DEPLOYMENT
