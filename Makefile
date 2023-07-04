@@ -1,10 +1,39 @@
-# first is default task when running "make" without args
-build: format gobuild lint
+### -----------------------
+# --- Building
+### -----------------------
+
+# first is default target when running "make" without args
+build: ##- Default 'make' target: go-format, go-build and lint.
+	@$(MAKE) format
+	@$(MAKE) gobuild
+	@$(MAKE) lint
+
+# useful to ensure that everything gets resetuped from scratch
+all: clean init ##- Runs all of our common make targets: clean, init, build and test.
+	@$(MAKE) build
+	@$(MAKE) test
+
+info: info-go ##- Prints additional info
+
+info-go: ##- (opt) Prints go.mod updates, module-name and current go version.
+	@echo "[go.mod]" > tmp/.info-go
+	@$(MAKE) get-go-outdated-modules >> tmp/.info-go
+	@$(MAKE) info-module-name >> tmp/.info-go
+	@go version >> tmp/.info-go
+	@cat tmp/.info-go
+
+# TODO: switch to "-m direct" after go 1.17 hits: https://github.com/golang/go/issues/40364
+get-go-outdated-modules: ##- (opt) Prints outdated (direct) go modules (from go.mod).
+	@((go list -u -m -f '{{if and .Update (not .Indirect)}}{{.}}{{end}}' all) 2>/dev/null | grep " ") || echo "go modules are up-to-date."
+
+info-module-name: ##- (opt) Prints current go module-name.
+	@echo "go module-name: '${GO_MODULE_NAME}'"
+
 
 format:
 	go fmt
 
-gobuild: 
+gobuild:
 	go build -o bin/integresql ./cmd/server
 
 lint:
