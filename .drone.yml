@@ -328,66 +328,6 @@ pipeline:
   #       environment: production
   #       event: deployment
 
-  # ---------------------------------------------------------------------------
-  # DEPLOYMENT go-starter
-  # Purpose: go-starter drone specific publish and deployment steps
-  # NOTE: you do not need to uncomment them for our customer projects
-  # These steps won't be executed unless we work in the main "AW/go-starter" repo
-  # ---------------------------------------------------------------------------
-
-  "go-starter publish ${DRONE_BRANCH}_${DRONE_COMMIT_SHA:0:10}":
-    group: go-starter-publish
-    image: plugins/gcr
-    repo: a3cloud-192413/${DRONE_REPO,,}
-    registry: eu.gcr.io
-    secrets:
-      - source: AAA_GCR_SERVICE_ACCOUNT_JSON
-        target: google_credentials
-    # local short-time-cache: don't cleanup any image layers after pushing
-    purge: false
-    # force compress of docker build context
-    compress: true
-    volumes: # mount needed to push the already build container
-      - /var/run/docker.sock:/var/run/docker.sock
-    tags:
-      - build_${DRONE_BUILD_NUMBER}
-      - ${DRONE_BRANCH/\//-}_${DRONE_COMMIT_SHA:0:10}
-      - *IMAGE_DEPLOY_TAG
-      - latest
-      - ${DRONE_BRANCH/\//-}
-      - "${DRONE_COMMIT_SHA:0:10}"
-    when:
-      repo: AW/go-starter
-      branch: [master, mr/a3cloud, mr/liveness-probing]
-      event: [push, pull_request, tag]
-
-  "go-starter deploy ${DRONE_COMMIT_SHA:0:10} to allaboutapps-go-starter-dev (auto)":
-    group: go-starter-deploy
-    image: eu.gcr.io/a3cloud-192413/aw/aaa-drone-kubernetes:latest
-    pull: true
-    secrets:
-      - source: AAA_K8S_SERVER
-        target: KUBERNETES_SERVER
-      - source: AAA_K8S_SERVICE_ACCOUNT_CRT
-        target: KUBERNETES_CERT
-      - source: AAA_K8S_SERVICE_ACCOUNT_TOKEN
-        target: KUBERNETES_TOKEN
-      - source: AAA_GCR_SERVICE_ACCOUNT_JSON
-        target: GCR_SERVICE_ACCOUNT
-    deployment: app
-    repo: eu.gcr.io/a3cloud-192413/${DRONE_REPO,,}
-    container: [app]
-    tag: *IMAGE_DEPLOY_TAG
-    gcr_service_account_email: drone-ci-a3cloud@a3cloud-192413.iam.gserviceaccount.com
-    mgmt_repo: https://git.allaboutapps.at/scm/aw/a3cloud-mgmt.git
-    mgmt_git_email: infrastructure+drone@allaboutapps.at
-    namespace: allaboutapps-go-starter-dev
-    mgmt_deployment_yaml: namespaces/allaboutapps-go-starter-dev/app.deployment.yaml
-    when:
-      repo: AW/go-starter
-      branch: [master, mr/a3cloud, mr/liveness-probing]
-      event: [push, pull_request, tag]
-
 # Long living services where the startup order does not matter (otherwise use detach: true)
 services:
   # ---------------------------------------------------------------------------
