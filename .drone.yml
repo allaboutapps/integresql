@@ -32,20 +32,20 @@ alias:
   # Defines which branches will trigger a docker image push our Google Cloud Registry (tags are always published)
   - &GCR_PUBLISH_BRANCHES [dev, staging, master]
 
-  #   # Docker registry publish default settings
-  #   - &GCR_REGISTRY_SETTINGS
-  #     image: plugins/gcr
-  #     repo: a3cloud-192413/${DRONE_REPO,,}
-  #     registry: eu.gcr.io
-  #     secrets:
-  #       - source: AAA_GCR_SERVICE_ACCOUNT_JSON
-  #         target: google_credentials
-  #     # local short-time-cache: don't cleanup any image layers after pushing
-  #     purge: false
-  #     # force compress of docker build context
-  #     compress: true
-  #     volumes: # mount needed to push the already build container
-  #       - /var/run/docker.sock:/var/run/docker.sock
+  # Docker registry publish default settings
+  - &GCR_REGISTRY_SETTINGS
+    image: plugins/gcr
+    repo: a3cloud-192413/${DRONE_REPO,,}
+    registry: eu.gcr.io
+    secrets:
+      - source: AAA_GCR_SERVICE_ACCOUNT_JSON
+        target: google_credentials
+    # local short-time-cache: don't cleanup any image layers after pushing
+    purge: false
+    # force compress of docker build context
+    compress: true
+    volumes: # mount needed to push the already build container
+      - /var/run/docker.sock:/var/run/docker.sock
 
   #   # Deployment default settings
   #   - &K8S_DEPLOY_SETTINGS
