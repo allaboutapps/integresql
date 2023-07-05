@@ -18,8 +18,8 @@ ENV MAKEFLAGS "-j 8 --no-print-directory"
 # e.g. stretch=>stretch-pgdg, buster=>buster-pgdg, bullseye=>bullseye-pgdg
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main" \
     | tee /etc/apt/sources.list.d/pgdg.list \
-    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    | apt-key add -
+    && apt install curl ca-certificates gnupg \
+    && curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | tee /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg >/dev/null
 
 
 # Install required system dependencies
@@ -75,6 +75,11 @@ RUN ARCH="$(arch | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)" \
     && curl -o /usr/local/bin/swagger -L'#' \
     "https://github.com/go-swagger/go-swagger/releases/download/v0.29.0/swagger_linux_${ARCH}" \
     && chmod +x /usr/local/bin/swagger
+
+# lichen: go license util
+# TODO: Install from static binary as soon as it becomes available.
+# https://github.com/uw-labs/lichen/tags
+RUN go install github.com/uw-labs/lichen@v0.1.7
 
 # linux permissions / vscode support: Add user to avoid linux file permission issues
 # Detail: Inside the container, any mounted files/folders will have the exact same permissions
