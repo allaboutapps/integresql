@@ -30,7 +30,7 @@ alias:
   - &IMAGE_DEPLOY_ID ${DRONE_REPO,,}:${DRONE_COMMIT_SHA}
 
   # Defines which branches will trigger a docker image push our Google Cloud Registry (tags are always published)
-  - &GCR_PUBLISH_BRANCHES [dev, master]
+  - &GCR_PUBLISH_BRANCHES [dev, master, mr/dev]
 
   # Docker registry publish default settings
   - &GCR_REGISTRY_SETTINGS
