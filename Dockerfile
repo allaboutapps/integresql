@@ -28,6 +28,7 @@ RUN apt-get update \
     locales \
     sudo \
     bash-completion \
+    bsdmainutils \
     postgresql-client-12 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

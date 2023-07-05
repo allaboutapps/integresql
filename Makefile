@@ -56,24 +56,32 @@ get-go-outdated-modules: ##- (opt) Prints outdated (direct) go modules (from go.
 	@((go list -u -m -f '{{if and .Update (not .Indirect)}}{{.}}{{end}}' all) 2>/dev/null | grep " ") || echo "go modules are up-to-date."
 
 
-init: modules tools tidy
+### -----------------------
+# --- Initializing
+### -----------------------
+
+init: ##- Runs make modules, tools and tidy.
+	@$(MAKE) modules
+	@$(MAKE) tools
+	@$(MAKE) tidy
 	@go version
 
 # cache go modules (locally into .pkg)
-modules:
+modules: ##- (opt) Cache packages as specified in go.mod.
 	go mod download
 
 # https://marcofranssen.nl/manage-go-tools-via-go-modules/
-tools:
-	cat tools.go | grep _ | awk -F'"' '{print $$2}' | xargs -tI % go install %
+tools: ##- (opt) Install packages as specified in tools.go.
+	@cat tools.go | grep _ | awk -F'"' '{print $$2}' | xargs -P $$(nproc) -tI % go install %
 
-tidy:
+tidy: ##- (opt) Tidy our go.sum file.
 	go mod tidy
 
-clean:
-	rm -rf bin
+### -----------------------
+# --- SQL
+### -----------------------
 
-reset:
+reset: ##- Wizard to drop and create our development database.
 	@echo "DROP & CREATE database:"
 	@echo "  PGHOST=${PGHOST} PGDATABASE=${PGDATABASE}" PGUSER=${PGUSER}
 	@echo -n "Are you sure? [y/N] " && read ans && [ $${ans:-N} = y ]
@@ -100,44 +108,42 @@ get-embedded-modules-count: ##- (opt) Prints count of embedded modules in the co
 # --- Helpers
 ### -----------------------
 
+clean: ##- Cleans tmp folders.
+	@echo "make clean"
+	@rm -rf tmp/* 2> /dev/null
+	@rm -rf api/tmp/* 2> /dev/null
+
 get-module-name: ##- Prints current go module-name (pipeable).
 	@echo "${GO_MODULE_NAME}"
 
 info-module-name: ##- (opt) Prints current go module-name.
 	@echo "go module-name: '${GO_MODULE_NAME}'"
 
-set-module-name: ##- Wizard to set a new go module-name.
-	@rm -f tmp/.modulename
-	@$(MAKE) info-module-name
-	@echo "Enter new go module-name:" \
-		&& read new_module_name \
-		&& echo "new go module-name: '$${new_module_name}'" \
-		&& echo -n "Are you sure? [y/N]" \
-		&& read ans && [ $${ans:-N} = y ] \
-		&& echo -n "Please wait..." \
-		&& find . -not -path '*/\.*' -not -path './Makefile' -type f -exec sed -i "s|${GO_MODULE_NAME}|$${new_module_name}|g" {} \; \
-		&& echo "new go module-name: '$${new_module_name}'!"
-	@rm -f tmp/.modulename
-
-force-module-name: ##- Overwrite occurrences of 'allaboutapps.dev/aw/go-starter' with current go module-name.
-	find . -not -path '*/\.*' -not -path './Makefile' -type f -exec sed -i "s|allaboutapps.dev/aw/go-starter|${GO_MODULE_NAME}|g" {} \;
-
 get-go-ldflags: ##- (opt) Prints used -ldflags as evaluated in Makefile used in make go-build
 	@echo $(LDFLAGS)
+
+# https://gist.github.com/prwhite/8168133 - based on comment from @m000
+help: ##- Show common make targets.
+	@echo "usage: make <target>"
+	@echo "note: use 'make help-all' to see all make targets."
+	@echo ""
+	@sed -e '/#\{2\}-/!d; s/\\$$//; s/:[^#\t]*/@/; s/#\{2\}- *//' $(MAKEFILE_LIST) | grep --invert "(opt)" | sort | column -t -s '@'
+
+help-all: ##- Show all make targets.
+	@echo "usage: make <target>"
+	@echo "note: make targets flagged with '(opt)' are part of a main target."
+	@echo ""
+	@sed -e '/#\{2\}-/!d; s/\\$$//; s/:[^#\t]*/@/; s/#\{2\}- *//' $(MAKEFILE_LIST) | sort | column -t -s '@'
 
 ### -----------------------
 # --- Make variables
 ### -----------------------
 
+# go module name (as in go.mod)
+GO_MODULE_NAME = github.com/allaboutapps/integresql
+
 # only evaluated if required by a recipe
 # http://make.mad-scientist.net/deferred-simple-variable-expansion/
-
-# go module name (as in go.mod)
-GO_MODULE_NAME = $(eval GO_MODULE_NAME := $$(shell \
-	(mkdir -p tmp 2> /dev/null && cat tmp/.modulename 2> /dev/null) \
-	|| (gsdev modulename 2> /dev/null | tee tmp/.modulename) || echo "unknown" \
-))$(GO_MODULE_NAME)
-
 
 # https://medium.com/the-go-journey/adding-version-information-to-go-binaries-e1b79878f6f2
 ARG_COMMIT = $(eval ARG_COMMIT := $$(shell \
@@ -168,12 +174,12 @@ LDFLAGS = $(eval LDFLAGS := "\
 # https://unix.stackexchange.com/questions/153763/dont-stop-makeing-if-a-command-fails-but-check-exit-status
 # https://www.gnu.org/software/make/manual/html_node/One-Shell.html
 # required to ensure make fails if one recipe fails (even on parallel jobs) and on pipefails
-# .ONESHELL:
+.ONESHELL:
 
 # # normal POSIX bash shell mode
 # SHELL = /bin/bash
 # .SHELLFLAGS = -cEeuo pipefail
 
-# # wrapped make time tracing shell, use it via MAKE_TRACE_TIME=true make <target>
-# SHELL = /app/rksh
+# wrapped make time tracing shell, use it via MAKE_TRACE_TIME=true make <target>
+# SHELL = /bin/rksh
 # .SHELLFLAGS = $@
