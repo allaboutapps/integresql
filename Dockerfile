@@ -10,8 +10,8 @@ ENV PATH $GOBIN:$PATH
 # e.g. stretch=>stretch-pgdg, buster=>buster-pgdg
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ buster-pgdg main" \
     | tee /etc/apt/sources.list.d/pgdg.list \
-    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    | apt-key add -
+    && apt install curl ca-certificates gnupg \
+    && curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | tee /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg >/dev/null
 
 # Install required system dependencies
 RUN apt-get update \
@@ -49,7 +49,7 @@ RUN wget https://github.com/kyoh86/richgo/releases/download/v0.3.3/richgo_0.3.3_
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
     | sh -s -- -b $(go env GOPATH)/bin v1.24.0
 
-# go swagger: (this package should NOT be installed via go get) 
+# go swagger: (this package should NOT be installed via go get)
 # https://github.com/go-swagger/go-swagger/releases
 RUN curl -o /usr/local/bin/swagger -L'#' \
     "https://github.com/go-swagger/go-swagger/releases/download/v0.23.0/swagger_linux_amd64" \
