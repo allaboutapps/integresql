@@ -1,3 +1,4 @@
+//go:build tools
 // +build tools
 
 // Tooling dependencies
@@ -9,3 +10,7 @@
 // Other tooling may be installed as *static binary* directly within the Dockerfile
 
 package tools
+
+import (
+	_ "github.com/uw-labs/lichen"
+)
