@@ -102,7 +102,7 @@ We try to approximate local/test and live as close as possible, therefore using 
 
 ### Approach 3a: Isolation by templates
 
-We discovered that using [PostgreSQL templates](https://www.endpoint.com/blog/2010/05/12/postgresql-template-databases-to) and creating the actual new test database from them is quite fast, let's to this:
+We discovered that using [PostgreSQL templates](https://supabase.com/blog/2020/07/09/postgresql-templates) and creating the actual new test database from them is quite fast, let's to this:
 
 * Test runner starts
 * Recreate a PostgreSQL template database
@@ -267,6 +267,9 @@ Our flow now finally changed to this:
 The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
 
 * Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
+* Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
+* .NET: [IntegreSQL.EF](https://github.com/mcctomsk/IntegreSql.EF) by [Artur Drobinskiy - @Shaddix](https://github.com/Shaddix)
+* JavaScript/TypeScript: [@devoxa/integresql-client](https://github.com/devoxa/integresql-client) by [Devoxa - @devoxa](https://github.com/devoxa)
 * ... *Add your link here and make a PR*
 
 #### Integrate by RESTful JSON calls
