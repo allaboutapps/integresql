@@ -51,8 +51,18 @@ func NewDBPool(maxPoolSize int, testDBNamePrefix string, numberOfWorkers int) *D
 // RecreateDBFunc callback executed when a pool is extended or the DB cleaned up by a worker.
 type RecreateDBFunc func(ctx context.Context, testDB db.TestDatabase, templateName string) error
 
+func makeActualRecreateTestDBFunc(templateName string, userRecreateFunc RecreateDBFunc) recreateTestDBFunc {
+	return func(ctx context.Context, testDBWrapper *existingDB) error {
+		testDBWrapper.createdAt = time.Now()
+		return userRecreateFunc(ctx, testDBWrapper.TestDatabase, templateName)
+	}
+}
+
+type recreateTestDBFunc func(context.Context, *existingDB) error
+
 type existingDB struct {
-	state dbState
+	state     dbState
+	createdAt time.Time
 	db.TestDatabase
 }
 
@@ -62,7 +72,7 @@ type dbHashPool struct {
 	ready chan int // ID of initalized DBs according to a template, ready to pick them up
 	dirty chan int // ID of returned DBs, need to be recreated to reuse them
 
-	recreateDB RecreateDBFunc
+	recreateDB recreateTestDBFunc
 	templateDB db.Database
 	sync.RWMutex
 	wg           sync.WaitGroup
@@ -329,7 +339,7 @@ func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Dat
 		dbs:          make([]existingDB, 0, maxPoolSize),
 		ready:        make(chan int, maxPoolSize),
 		dirty:        make(chan int, maxPoolSize),
-		recreateDB:   recreateDB,
+		recreateDB:   makeActualRecreateTestDBFunc(templateDB.Config.Database, recreateDB),
 		templateDB:   templateDB,
 		numOfWorkers: numberOfWorkers,
 	}
@@ -348,8 +358,6 @@ func (pool *dbHashPool) enableWorker(numberOfWorkers int) {
 // workerCleanUpDirtyDB reads 'dirty' channel and cleans up a test DB with the received index.
 // When the DB is recreated according to a template, its index goes to the 'ready' channel.
 func (pool *dbHashPool) workerCleanUpDirtyDB() {
-
-	templateName := pool.templateDB.Config.Database
 
 	for dirtyID := range pool.dirty {
 		if dirtyID == stopWorkerMessage {
@@ -377,7 +385,7 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 		}
 
 		reg := trace.StartRegion(ctx, "worker_cleanup")
-		if err := pool.recreateDB(ctx, testDB.TestDatabase, templateName); err != nil {
+		if err := pool.recreateDB(ctx, &testDB); err != nil {
 			// TODO anna: error handling
 			fmt.Printf("integresql: failed to clean up DB: %v\n", err)
 
@@ -421,47 +429,47 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 		return db.TestDatabase{}, ErrPoolFull
 	}
 
-	// initalization of a new DB
-	newTestDB := db.TestDatabase{
-		Database: db.Database{
-			TemplateHash: pool.templateDB.TemplateHash,
-			Config:       pool.templateDB.Config,
+	// initalization of a new DB using template config
+	newTestDB := existingDB{
+		state:     state,
+		createdAt: time.Now(),
+		TestDatabase: db.TestDatabase{
+			Database: db.Database{
+				TemplateHash: pool.templateDB.TemplateHash,
+				Config:       pool.templateDB.Config,
+			},
+			ID: index,
 		},
-		ID: index,
 	}
-
 	// set DB name
-	dbName := makeDBName(testDBPrefix, pool.templateDB.TemplateHash, index)
-	newTestDB.Database.Config.Database = dbName
+	newTestDB.Database.Config.Database = makeDBName(testDBPrefix, pool.templateDB.TemplateHash, index)
 
-	templateDB := pool.templateDB.Config.Database
-	if err := pool.recreateDB(ctx, newTestDB, templateDB); err != nil {
+	if err := pool.recreateDB(ctx, &newTestDB); err != nil {
 		return db.TestDatabase{}, err
 	}
 
 	// add new test DB to the pool
-	pool.dbs = append(pool.dbs, existingDB{state: state, TestDatabase: newTestDB})
+	pool.dbs = append(pool.dbs, newTestDB)
 
-	return newTestDB, nil
+	return newTestDB.TestDatabase, nil
 	// dbHashPool unlocked
 	// !
 }
 
 // unsafeRecycleInUseTestDB searches for a test DB that is in use and that can be dropped and recreated.
-// WARNING: pool has to be already locked by a colling function!
+// WARNING: pool has to be already locked by a calling function!
 func (pool *dbHashPool) unsafeRecycleInUseTestDB(ctx context.Context) (db.TestDatabase, error) {
 
 	for id := 0; id < len(pool.dbs); id++ {
 		if pool.dbs[id].state == dbStateInUse {
-			testDB := pool.dbs[id].TestDatabase
-			templateDB := pool.templateDB.Config.Database
+			testDB := pool.dbs[id]
 
-			if err := pool.recreateDB(ctx, testDB, templateDB); err != nil {
+			if err := pool.recreateDB(ctx, &testDB); err != nil {
 				// probably still in use, we will continue to search for another ready to be recreated DB
 				continue
 			}
 
-			return testDB, nil
+			return testDB.TestDatabase, nil
 		}
 	}
 
