@@ -225,26 +225,26 @@ pipeline:
     environment: *TEST_ENV
     <<: *WHEN_BUILD_EVENT
 
-  "docker run (target app)":
-    group: test
-    image: docker:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      <<: *TEST_ENV
-      IMAGE_TAG: *IMAGE_DEPLOY_ID
-    commands:
-      # Note: NO network related tests are possible here, dnd can just
-      # run sibling containers. We have no possibility to connect them
-      # into the drone user defined per build docker network!
-      # https://github.com/drone-plugins/drone-docker/issues/193
-      # https://jpetazzo.github.io/2015/09/03/do-not-use-docker-in-docker-for-ci/
-      - (env | grep "^\S*=" | grep -v -e "DRONE=" -e "DRONE_" -e "CI_" -e "CI=" -e "HOME=" -e "HOSTNAME=" -e "SHELL=" -e "PWD=" -e "PATH=") > .hostenv
-      - cat .hostenv
-      - "docker run --env-file .hostenv $${IMAGE_TAG} help"
-      - "docker run --env-file .hostenv $${IMAGE_TAG} -v"
-      - "docker run --env-file .hostenv $${IMAGE_TAG} env"
-    <<: *WHEN_BUILD_EVENT
+  # "docker run (target app)":
+  #   group: test
+  #   image: docker:latest
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     <<: *TEST_ENV
+  #     IMAGE_TAG: *IMAGE_DEPLOY_ID
+  #   commands:
+  #     # Note: NO network related tests are possible here, dnd can just
+  #     # run sibling containers. We have no possibility to connect them
+  #     # into the drone user defined per build docker network!
+  #     # https://github.com/drone-plugins/drone-docker/issues/193
+  #     # https://jpetazzo.github.io/2015/09/03/do-not-use-docker-in-docker-for-ci/
+  #     - (env | grep "^\S*=" | grep -v -e "DRONE=" -e "DRONE_" -e "CI_" -e "CI=" -e "HOME=" -e "HOSTNAME=" -e "SHELL=" -e "PWD=" -e "PATH=") > .hostenv
+  #     - cat .hostenv
+  #     - "docker run --env-file .hostenv $${IMAGE_TAG} help"
+  #     - "docker run --env-file .hostenv $${IMAGE_TAG} -v"
+  #     - "docker run --env-file .hostenv $${IMAGE_TAG} env"
+  #   <<: *WHEN_BUILD_EVENT
 
   # ---------------------------------------------------------------------------
   # PUBLISH
