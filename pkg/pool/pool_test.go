@@ -255,7 +255,7 @@ func TestPoolInit(t *testing.T) {
 		assert.NoError(t, err)
 
 		// extend pool (= add and get)
-		_, err = p.ExtendPool(ctx, templateDB1)
+		_, err = p.ExtendPool(ctx, templateDB1, false /* recycleNotReturned */)
 		assert.NoError(t, err)
 	}
 
@@ -289,6 +289,67 @@ func TestPoolInit(t *testing.T) {
 	}()
 
 	wg.Wait()
+
+	p.Stop()
+}
+
+func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	hash1 := "h1"
+	templateDB1 := db.Database{
+		TemplateHash: hash1,
+		Config: db.DatabaseConfig{
+			Database: "h1_template",
+		},
+	}
+
+	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+		t.Log("(re)create ", testDB.Database, ", template name: ", templateName)
+		return nil
+	}
+
+	maxPoolSize := 40
+	numOfWorkers := 1
+	p := pool.NewDBPool(maxPoolSize, "test_", numOfWorkers)
+	p.InitHashPool(ctx, templateDB1, initFunc)
+
+	for i := 0; i < maxPoolSize; i++ {
+		// add and get freshly added DB
+		_, err := p.ExtendPool(ctx, templateDB1, false /* recycleNotReturned */)
+		assert.NoError(t, err)
+	}
+
+	// extend pool not allowing recycling inUse test DBs
+	_, err := p.ExtendPool(ctx, templateDB1, false /* recycleNotReturned */)
+	assert.ErrorIs(t, err, pool.ErrPoolFull)
+
+	forceExtend := func(seenIDMap *sync.Map) {
+		newTestDB1, err := p.ExtendPool(ctx, templateDB1, true /* recycleNotReturned */)
+		assert.NoError(t, err)
+		assert.Equal(t, hash1, newTestDB1.TemplateHash)
+		seenIDMap.Store(newTestDB1.ID, true)
+	}
+
+	// allow for recycling inUse test DBs
+	var wg sync.WaitGroup
+	seenIDMap := sync.Map{}
+	for i := 0; i < 3*maxPoolSize; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			forceExtend(&seenIDMap)
+		}()
+	}
+
+	wg.Wait()
+
+	for id := 0; id < maxPoolSize; id++ {
+		_, ok := seenIDMap.Load(id)
+		// every index that %5 != 0 should show up at least once
+		assert.Equal(t, id%5 != 0, ok, id)
+	}
 
 	p.Stop()
 }

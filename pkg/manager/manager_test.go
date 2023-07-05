@@ -659,6 +659,7 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	// should extend up to 10 on demand
 	cfg.TestDatabaseMaxPoolSize = 10
 	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
+	cfg.TestDatabaseForceReturn = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {

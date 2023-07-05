@@ -181,7 +181,7 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	// DBPool unlocked
 	// !
 
-	newTestDB, err := pool.extend(ctx, dbStateReady, p.dbNamePrefix)
+	newTestDB, err := pool.extend(ctx, dbStateReady, p.dbNamePrefix, false /* recycleNotReturned */)
 	if err != nil {
 		return err
 	}
@@ -194,8 +194,10 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 
 // AddTestDatabase adds a new test DB to the pool, creates it according to the template, and returns it right away to the caller.
 // The new test DB is marked as 'IsUse' and won't be picked up with GetTestDatabase, until it's returned to the pool.
-// If the pool size has already reached MAX, ErrPoolFull is returned.
-func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.TestDatabase, error) {
+// recycleNotReturned is an optional flag. If set to true, when a pool size has reached MAX and extension is requested,
+// not returned databases (marked as 'InUse') can be recycled.
+// This flag prevents receiving error ErrPoolFull.
+func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database, recycleNotReturned bool) (db.TestDatabase, error) {
 	hash := templateDB.TemplateHash
 
 	// !
@@ -216,7 +218,7 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// !
 
 	// because we return it right away, we treat it as 'inUse'
-	newTestDB, err := pool.extend(ctx, dbStateInUse, p.dbNamePrefix)
+	newTestDB, err := pool.extend(ctx, dbStateInUse, p.dbNamePrefix, recycleNotReturned)
 	if err != nil {
 		return db.TestDatabase{}, err
 	}
@@ -399,7 +401,7 @@ func (pool *dbHashPool) workerCleanUpDirtyDB() {
 	}
 }
 
-func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string) (db.TestDatabase, error) {
+func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string, recycleNotReturned bool) (db.TestDatabase, error) {
 	// !
 	// dbHashPool locked
 	reg := trace.StartRegion(ctx, "extend_wait_for_lock_hash_pool")
@@ -410,6 +412,12 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
 	if index == cap(pool.dbs) {
+
+		if recycleNotReturned {
+			// if recycleNotReturned is allowed, try it instead of returning error
+			return pool.unsafeRecycleInUseTestDB(ctx)
+		}
+
 		return db.TestDatabase{}, ErrPoolFull
 	}
 
@@ -437,6 +445,28 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 	return newTestDB, nil
 	// dbHashPool unlocked
 	// !
+}
+
+// unsafeRecycleInUseTestDB searches for a test DB that is in use and that can be dropped and recreated.
+// WARNING: pool has to be already locked by a colling function!
+func (pool *dbHashPool) unsafeRecycleInUseTestDB(ctx context.Context) (db.TestDatabase, error) {
+
+	for id := 0; id < len(pool.dbs); id++ {
+		if pool.dbs[id].state == dbStateInUse {
+			testDB := pool.dbs[id].TestDatabase
+			templateDB := pool.templateDB.Config.Database
+
+			if err := pool.recreateDB(ctx, testDB, templateDB); err != nil {
+				// probably still in use, we will continue to search for another ready to be recreated DB
+				continue
+			}
+
+			return testDB, nil
+		}
+	}
+
+	// we went through all the test DBs and none is ready to be recreated -> pool is full
+	return db.TestDatabase{}, ErrPoolFull
 }
 
 func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
