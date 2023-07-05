@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"runtime/trace"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/util"
 )
 
 var (
@@ -460,17 +462,27 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 // WARNING: pool has to be already locked by a calling function!
 func (pool *dbHashPool) unsafeRecycleInUseTestDB(ctx context.Context) (db.TestDatabase, error) {
 
+	dbInUse := util.NewSliceToSortByTime[int]()
 	for id := 0; id < len(pool.dbs); id++ {
+		testDB := pool.dbs[id]
+
 		if pool.dbs[id].state == dbStateInUse {
-			testDB := pool.dbs[id]
-
-			if err := pool.recreateDB(ctx, &testDB); err != nil {
-				// probably still in use, we will continue to search for another ready to be recreated DB
-				continue
-			}
-
-			return testDB.TestDatabase, nil
+			dbInUse.Add(testDB.createdAt, testDB.ID)
 		}
+	}
+
+	sort.Sort(dbInUse)
+	for i := 0; i < len(dbInUse); i++ {
+		id := dbInUse[i].Data
+		testDB := pool.dbs[id]
+
+		if err := pool.recreateDB(ctx, &testDB); err != nil {
+			// probably still in use, we will continue to search for another ready to be recreated DB
+			continue
+		}
+		pool.dbs[id] = testDB
+
+		return testDB.TestDatabase, nil
 	}
 
 	// we went through all the test DBs and none is ready to be recreated -> pool is full

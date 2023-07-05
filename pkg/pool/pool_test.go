@@ -348,7 +348,7 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 	for id := 0; id < maxPoolSize; id++ {
 		_, ok := seenIDMap.Load(id)
 		// every index that %5 != 0 should show up at least once
-		assert.Equal(t, id%5 != 0, ok, id)
+		assert.True(t, ok, id)
 	}
 
 	p.Stop()
