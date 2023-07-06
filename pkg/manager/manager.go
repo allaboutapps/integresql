@@ -54,10 +54,12 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		wg:        sync.WaitGroup{},
 		templates: templates.NewCollection(),
 		pool: pool.NewDBPool(
-			config.TestDatabaseMaxPoolSize,
-			testDBPrefix,
-			config.NumOfCleaningWorkers,
-			config.TestDatabaseForceReturn,
+			pool.PoolConfig{
+				MaxPoolSize:      config.TestDatabaseMaxPoolSize,
+				TestDBNamePrefix: testDBPrefix,
+				NumOfWorkers:     config.NumOfCleaningWorkers,
+				ForceDBReturn:    config.TestDatabaseForceReturn,
+			},
 		),
 		connectionCtx: context.TODO(),
 	}

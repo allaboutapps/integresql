@@ -31,26 +31,26 @@ const (
 
 const stopWorkerMessage int = -1
 
+type PoolConfig struct {
+	MaxPoolSize      int
+	TestDBNamePrefix string
+	NumOfWorkers     int  // Number of cleaning workers (each hash pool has enables this number of workers)
+	ForceDBReturn    bool // Force returning test DB. If set to false, test databases that are 'InUse' can be recycled (in not actually used).
+}
+
 type DBPool struct {
+	PoolConfig
+
 	pools map[string]*dbHashPool // map[hash]
 	mutex sync.RWMutex
-
-	maxPoolSize   int
-	dbNamePrefix  string
-	numOfWorkers  int  // Number of cleaning workers (each hash pool has enables this number of workers)
-	forceDBReturn bool // Force returning test DB. If set to false, test databases that are 'InUse' can be recycled (in not actually used).
 }
 
 // forceDBReturn set to false will allow reusing test databases that are marked as 'InUse'.
 // Otherwise, test DB has to be returned when no longer needed and there are higher chances of getting ErrPoolFull when requesting a new DB.
-func NewDBPool(maxPoolSize int, testDBNamePrefix string, numberOfWorkers int, forceDBReturn bool) *DBPool {
+func NewDBPool(cfg PoolConfig) *DBPool {
 	return &DBPool{
-		pools: make(map[string]*dbHashPool),
-
-		maxPoolSize:   maxPoolSize,
-		dbNamePrefix:  testDBNamePrefix,
-		numOfWorkers:  numberOfWorkers,
-		forceDBReturn: forceDBReturn,
+		pools:      make(map[string]*dbHashPool),
+		PoolConfig: cfg,
 	}
 }
 
@@ -93,14 +93,14 @@ func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initD
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	_ = p.initHashPool(ctx, templateDB, initDBFunc, p.forceDBReturn)
+	_ = p.initHashPool(ctx, templateDB, initDBFunc)
 }
 
-func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc, forceDBReturn bool) *dbHashPool {
+func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
 	// create a new dbHashPool
-	pool := newDBHashPool(p.maxPoolSize, initDBFunc, templateDB, p.numOfWorkers, forceDBReturn)
+	pool := newDBHashPool(p.PoolConfig, templateDB, initDBFunc)
 	// and start the cleaning worker
-	pool.enableWorker(p.numOfWorkers)
+	pool.enableWorker(p.NumOfWorkers)
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
@@ -193,14 +193,14 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	pool := p.pools[hash]
 
 	if pool == nil {
-		pool = p.initHashPool(ctx, templateDB, initFunc, p.forceDBReturn)
+		pool = p.initHashPool(ctx, templateDB, initFunc)
 	}
 
 	p.mutex.Unlock()
 	// DBPool unlocked
 	// !
 
-	newTestDB, err := pool.extend(ctx, dbStateReady, p.dbNamePrefix)
+	newTestDB, err := pool.extend(ctx, dbStateReady, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
 		return err
 	}
@@ -234,7 +234,7 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// !
 
 	// because we return it right away, we treat it as 'inUse'
-	newTestDB, err := pool.extend(ctx, dbStateInUse, p.dbNamePrefix)
+	newTestDB, err := pool.extend(ctx, dbStateInUse, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
 		return db.TestDatabase{}, err
 	}
@@ -340,15 +340,15 @@ func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase)
 	// !
 }
 
-func newDBHashPool(maxPoolSize int, recreateDB RecreateDBFunc, templateDB db.Database, numberOfWorkers int, forceDBReturn bool) *dbHashPool {
+func newDBHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
 	return &dbHashPool{
-		dbs:           make([]existingDB, 0, maxPoolSize),
-		ready:         make(chan int, maxPoolSize),
-		dirty:         make(chan int, maxPoolSize),
-		recreateDB:    makeActualRecreateTestDBFunc(templateDB.Config.Database, recreateDB),
+		dbs:           make([]existingDB, 0, cfg.MaxPoolSize),
+		ready:         make(chan int, cfg.MaxPoolSize),
+		dirty:         make(chan int, cfg.MaxPoolSize),
+		recreateDB:    makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
 		templateDB:    templateDB,
-		numOfWorkers:  numberOfWorkers,
-		forceDBReturn: forceDBReturn,
+		numOfWorkers:  cfg.NumOfWorkers,
+		forceDBReturn: cfg.ForceDBReturn,
 	}
 }
 
@@ -539,7 +539,7 @@ func (p *DBPool) MakeDBName(hash string, id int) string {
 	p.mutex.RLock()
 	p.mutex.RUnlock()
 
-	return makeDBName(p.dbNamePrefix, hash, id)
+	return makeDBName(p.PoolConfig.TestDBNamePrefix, hash, id)
 }
 
 func makeDBName(testDBPrefix string, hash string, id int) string {
