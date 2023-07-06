@@ -316,7 +316,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 	if errors.Is(err, pool.ErrTimeout) {
 		// on timeout we can try to extend the pool
 		ctx, task := trace.NewTask(ctx, "extend_pool_on_demand")
-		testDB, err = m.pool.ExtendPool(ctx, template.Database)
+		testDB, err = m.pool.ExtendPool(ctx, template.Database, !m.config.TestDatabaseForceReturn)
 		task.End()
 
 	} else if errors.Is(err, pool.ErrUnknownHash) {
@@ -329,7 +329,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		m.pool.InitHashPool(ctx, template.Database, initDBFunc)
 
 		// pool initalized, create one test db
-		testDB, err = m.pool.ExtendPool(ctx, template.Database)
+		testDB, err = m.pool.ExtendPool(ctx, template.Database, !m.config.TestDatabaseForceReturn)
 		// // and add new test DBs in the background
 		// m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
