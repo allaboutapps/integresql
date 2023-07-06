@@ -15,7 +15,8 @@ func TestPoolAddGet(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	p := pool.NewDBPool(2, "prefix_", 4)
+	forceReturn := true
+	p := pool.NewDBPool(2, "prefix_", 4, forceReturn)
 
 	hash1 := "h1"
 	hash2 := "h2"
@@ -83,7 +84,8 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize, "", 4)
+	forceReturn := true
+	p := pool.NewDBPool(maxPoolSize, "", 4, forceReturn)
 
 	var wg sync.WaitGroup
 	sleepDuration := 100 * time.Millisecond
@@ -149,7 +151,8 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize, "", 4)
+	forceReturn := true
+	p := pool.NewDBPool(maxPoolSize, "", 4, forceReturn)
 
 	var wg sync.WaitGroup
 
@@ -203,7 +206,8 @@ func TestPoolRemoveAll(t *testing.T) {
 	}
 
 	maxPoolSize := 6
-	p := pool.NewDBPool(maxPoolSize, "", 4)
+	forceReturn := true
+	p := pool.NewDBPool(maxPoolSize, "", 4, forceReturn)
 
 	// add DBs sequentially
 	for i := 0; i < maxPoolSize; i++ {
@@ -245,7 +249,8 @@ func TestPoolInit(t *testing.T) {
 
 	maxPoolSize := 100
 	numOfWorkers := 150
-	p := pool.NewDBPool(maxPoolSize, "", numOfWorkers)
+	forceReturn := true
+	p := pool.NewDBPool(maxPoolSize, "", numOfWorkers, forceReturn)
 
 	// we will test 2 ways of adding new DBs
 	for i := 0; i < maxPoolSize/2; i++ {
@@ -255,7 +260,7 @@ func TestPoolInit(t *testing.T) {
 		assert.NoError(t, err)
 
 		// extend pool (= add and get)
-		_, err = p.ExtendPool(ctx, templateDB1, false /* recycleNotReturned */)
+		_, err = p.ExtendPool(ctx, templateDB1)
 		assert.NoError(t, err)
 	}
 
@@ -312,21 +317,18 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 
 	maxPoolSize := 40
 	numOfWorkers := 1
-	p := pool.NewDBPool(maxPoolSize, "test_", numOfWorkers)
+	forceReturn := false
+	p := pool.NewDBPool(maxPoolSize, "test_", numOfWorkers, forceReturn)
 	p.InitHashPool(ctx, templateDB1, initFunc)
 
 	for i := 0; i < maxPoolSize; i++ {
 		// add and get freshly added DB
-		_, err := p.ExtendPool(ctx, templateDB1, false /* recycleNotReturned */)
+		_, err := p.ExtendPool(ctx, templateDB1)
 		assert.NoError(t, err)
 	}
 
-	// extend pool not allowing recycling inUse test DBs
-	_, err := p.ExtendPool(ctx, templateDB1, false /* recycleNotReturned */)
-	assert.ErrorIs(t, err, pool.ErrPoolFull)
-
 	forceExtend := func(seenIDMap *sync.Map) {
-		newTestDB1, err := p.ExtendPool(ctx, templateDB1, true /* recycleNotReturned */)
+		newTestDB1, err := p.ExtendPool(ctx, templateDB1)
 		assert.NoError(t, err)
 		assert.Equal(t, hash1, newTestDB1.TemplateHash)
 		seenIDMap.Store(newTestDB1.ID, true)
