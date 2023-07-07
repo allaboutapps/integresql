@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"runtime/trace"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
-	"github.com/allaboutapps/integresql/pkg/util"
 )
 
 var (
@@ -77,6 +75,7 @@ type dbHashPool struct {
 	dbs   []existingDB
 	ready chan int // ID of initalized DBs according to a template, ready to pick them up
 	dirty chan int // ID of returned DBs, need to be recreated to reuse them
+	inUse chan int // ID of DBs that were given away and are currenly in use
 
 	recreateDB recreateTestDBFunc
 	templateDB db.Database
@@ -164,24 +163,27 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 		return
 	}
 
-	givenTestDB := pool.dbs[index]
+	testDB := pool.dbs[index]
 	// sanity check, should never happen - we got this index from 'ready' channel
-	if givenTestDB.state != dbStateReady {
+	if testDB.state != dbStateReady {
 		err = ErrInvalidState
 		return
 	}
 
-	givenTestDB.state = dbStateInUse
-	pool.dbs[index] = givenTestDB
+	testDB.state = dbStateInUse
+	pool.dbs[index] = testDB
 
-	return givenTestDB.TestDatabase, nil
+	pool.inUse <- index
+
+	return testDB.TestDatabase, nil
 	// dbHashPool unlocked
 	// !
 }
 
 // AddTestDatabase adds a new test DB to the pool and creates it according to the template.
 // The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
-// If the pool size has already reached MAX, ErrPoolFull is returned.
+// If the pool size has already reached MAX, ErrPoolFull is returned, unless ForceDBReturn flag is set to false.
+// Then databases that were given away would get reset (if no DB connection is currently open) and marked as 'Ready'.
 func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, initFunc RecreateDBFunc) error {
 	hash := templateDB.TemplateHash
 
@@ -196,12 +198,19 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 		pool = p.initHashPool(ctx, templateDB, initFunc)
 	}
 
+	forceReturn := p.ForceDBReturn
 	p.mutex.Unlock()
 	// DBPool unlocked
 	// !
 
 	newTestDB, err := pool.extend(ctx, dbStateReady, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
+		if errors.Is(err, ErrPoolFull) && !forceReturn {
+			// we can try to reset test databases that are 'InUse'
+			_, err := pool.resetNotReturned(ctx, p.TestDBNamePrefix, false /* shouldKeepInUse */)
+			return err
+		}
+
 		return err
 	}
 
@@ -229,6 +238,7 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 		return db.TestDatabase{}, ErrUnknownHash
 	}
 
+	forceReturn := p.ForceDBReturn
 	p.mutex.Unlock()
 	// DBPool unlocked
 	// !
@@ -236,8 +246,15 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// because we return it right away, we treat it as 'inUse'
 	newTestDB, err := pool.extend(ctx, dbStateInUse, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
+		if errors.Is(err, ErrPoolFull) && !forceReturn {
+			// we can try to reset test databases that are 'InUse'
+			return pool.resetNotReturned(ctx, p.TestDBNamePrefix, true /* shouldKeepInUse */)
+		}
+
 		return db.TestDatabase{}, err
 	}
+
+	pool.inUse <- newTestDB.ID
 
 	return newTestDB, nil
 }
@@ -271,7 +288,7 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	// DBPool unlocked
 	// !
 
-	if id >= len(pool.dbs) {
+	if id < 0 || id >= len(pool.dbs) {
 		return ErrInvalidIndex
 	}
 
@@ -290,6 +307,28 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	return nil
 	// dbHashPool unlocked
 	// !
+}
+
+// ReturnCleanTestDatabase is used to return a DB that is currently 'InUse' to the pool,
+// but has not been modified and is ready to be reused on next GET call.
+// Therefore it's not added to 'dirty' channel and is reused as is.
+func (p *DBPool) ReturnCleanTestDatabase(ctx context.Context, hash string, id int) error {
+
+	// !
+	// DBPool locked
+	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
+	p.mutex.Lock()
+	reg.End()
+	pool := p.pools[hash]
+
+	if pool == nil {
+		// no such pool
+		p.mutex.Unlock()
+		return ErrUnknownHash
+	}
+	p.mutex.Unlock()
+
+	return pool.returnCleanDB(ctx, id)
 }
 
 // RemoveAllWithHash removes a pool with a given template hash.
@@ -345,6 +384,7 @@ func newDBHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDB
 		dbs:           make([]existingDB, 0, cfg.MaxPoolSize),
 		ready:         make(chan int, cfg.MaxPoolSize),
 		dirty:         make(chan int, cfg.MaxPoolSize),
+		inUse:         make(chan int, cfg.MaxPoolSize),
 		recreateDB:    makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
 		templateDB:    templateDB,
 		numOfWorkers:  cfg.NumOfWorkers,
@@ -416,6 +456,33 @@ func (pool *dbHashPool) workerCleanUpReturnedDB() {
 	}
 }
 
+func (pool *dbHashPool) returnCleanDB(ctx context.Context, id int) error {
+	pool.Lock()
+	defer pool.Unlock()
+
+	if id < 0 || id >= len(pool.dbs) {
+		return ErrInvalidIndex
+	}
+
+	// check if db is in the correct state
+	testDB := pool.dbs[id]
+	if testDB.state == dbStateReady {
+		return nil
+	}
+
+	// if not in use, it will be cleaned up by a worker
+	if testDB.state != dbStateInUse {
+		return ErrInvalidState
+	}
+
+	testDB.state = dbStateReady
+	pool.dbs[id] = testDB
+
+	return nil
+	// dbHashPool unlocked
+	// !
+}
+
 func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string) (db.TestDatabase, error) {
 	// !
 	// dbHashPool locked
@@ -427,12 +494,6 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
 	if index == cap(pool.dbs) {
-
-		if !pool.forceDBReturn {
-			// if forceDBReturn is allowed, try it instead of returning error
-			return pool.unsafeRecycleInUseTestDB(ctx)
-		}
-
 		return db.TestDatabase{}, ErrPoolFull
 	}
 
@@ -463,35 +524,59 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 	// !
 }
 
-// unsafeRecycleInUseTestDB searches for a test DB that is in use and that can be dropped and recreated.
-// WARNING: pool has to be already locked by a calling function!
-func (pool *dbHashPool) unsafeRecycleInUseTestDB(ctx context.Context) (db.TestDatabase, error) {
-
-	dbInUse := util.NewSliceToSortByTime[int]()
-	for id := 0; id < len(pool.dbs); id++ {
-		testDB := pool.dbs[id]
-
-		if pool.dbs[id].state == dbStateInUse {
-			dbInUse.Add(testDB.createdAt, testDB.ID)
-		}
+// resetNotReturned recreates one DB that is 'InUse' and to which no db clients are connected (so it can be dropped).
+// If shouldKeepInUse is set to true, the DB state remains 'InUse'. Otherwise, it is marked as 'Ready'
+// and can be obtained again with GetTestDatabase request - in such case error is nil but returned db.TestDatabase is empty.
+func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix string, shouldKeepInUse bool) (db.TestDatabase, error) {
+	timeout := 10 * time.Millisecond // arbitrary small timeout not to cause deadlock
+	var index int
+	select {
+	case <-time.After(timeout):
+		return db.TestDatabase{}, ErrPoolFull
+	case index = <-pool.inUse:
 	}
 
-	sort.Sort(dbInUse)
-	for i := 0; i < len(dbInUse); i++ {
-		id := dbInUse[i].Data
-		testDB := pool.dbs[id]
+	// !
+	// dbHashPool locked
+	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
+	pool.Lock()
+	defer pool.Unlock()
+	reg.End()
 
-		if err := pool.recreateDB(ctx, &testDB); err != nil {
-			// probably still in use, we will continue to search for another ready to be recreated DB
-			continue
+	// sanity check, should never happen
+	if index < 0 || index >= len(pool.dbs) {
+		return db.TestDatabase{}, ErrInvalidIndex
+	}
+
+	testDB := pool.dbs[index]
+	if testDB.state == dbStateReady {
+		if shouldKeepInUse {
+			return db.TestDatabase{}, ErrInvalidState
 		}
-		pool.dbs[id] = testDB
+
+		return db.TestDatabase{}, nil
+	}
+
+	if err := pool.recreateDB(ctx, &testDB); err != nil {
+		return db.TestDatabase{}, err
+	}
+
+	if shouldKeepInUse {
+		testDB.state = dbStateInUse
+		pool.dbs[index] = testDB
+		pool.inUse <- index
 
 		return testDB.TestDatabase, nil
 	}
 
-	// we went through all the test DBs and none is ready to be recreated -> pool is full
-	return db.TestDatabase{}, ErrPoolFull
+	// if shouldKeepInUse is false, we can add this DB to the ready pool
+	testDB.state = dbStateReady
+	pool.dbs[index] = testDB
+	pool.ready <- index
+
+	return db.TestDatabase{}, nil
+	// dbHashPool unlocked
+	// !
 }
 
 func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {

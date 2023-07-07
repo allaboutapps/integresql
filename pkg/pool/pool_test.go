@@ -182,7 +182,6 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 		db, err := p.GetTestDatabase(ctx, hash, 3*time.Second)
 		assert.NoError(t, err)
 		assert.Equal(t, hash, db.TemplateHash)
-		time.Sleep(20 * time.Millisecond)
 		t.Logf("returning %s %v\n", db.TemplateHash, db.ID)
 		assert.NoError(t, p.ReturnTestDatabase(ctx, hash, db.ID))
 	}
