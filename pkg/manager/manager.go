@@ -283,10 +283,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	}
 
 	// Init a pool with this hash
-	initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
-	}
-	m.pool.InitHashPool(ctx, template.Database, initDBFunc)
+	m.pool.InitHashPool(ctx, template.Database, m.recreateTestDB)
 
 	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
@@ -330,10 +327,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		// Template exists, but the pool is not there -
 		// it must have been removed.
 		// It needs to be reinitialized.
-		initDBFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-			return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
-		}
-		m.pool.InitHashPool(ctx, template.Database, initDBFunc)
+		m.pool.InitHashPool(ctx, template.Database, m.recreateTestDB)
 
 		// pool initalized, create one test db
 		testDB, err = m.pool.ExtendPool(ctx, template.Database)
@@ -341,6 +335,13 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		// m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
 	}
+
+	// before returning create a new test database in background
+	m.wg.Add(1)
+	go func(templ *templates.Template) {
+		defer m.wg.Done()
+		_ = m.createTestDatabaseFromTemplate(ctx, templ)
+	}(template)
 
 	if err != nil {
 		return db.TestDatabase{}, err
@@ -454,6 +455,10 @@ func (m *Manager) createDatabase(ctx context.Context, dbName string, owner strin
 	return nil
 }
 
+func (m *Manager) recreateTestDB(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+	return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
+}
+
 func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 
 	defer trace.StartRegion(ctx, "drop_db").End()
@@ -489,11 +494,7 @@ func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *
 		return ErrInvalidTemplateState
 	}
 
-	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
-	}
-
-	return m.pool.AddTestDatabase(ctx, template.Database, initFunc)
+	return m.pool.AddTestDatabase(ctx, template.Database, m.recreateTestDB)
 }
 
 // Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.
