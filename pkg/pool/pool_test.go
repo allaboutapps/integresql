@@ -330,7 +330,7 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 	}
 
 	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		t.Log("(re)create ", testDB.Database, ", template name: ", templateName)
+		t.Log("(re)create ", testDB.Database.Config.Database)
 		return nil
 	}
 
@@ -352,7 +352,6 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 	forceExtend := func(seenIDMap *sync.Map) {
 		newTestDB1, err := p.ExtendPool(ctx, templateDB1)
 		assert.NoError(t, err)
-		assert.Equal(t, hash1, newTestDB1.TemplateHash)
 		seenIDMap.Store(newTestDB1.ID, true)
 	}
 

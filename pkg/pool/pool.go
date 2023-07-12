@@ -173,7 +173,12 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 	testDB.state = dbStateInUse
 	pool.dbs[index] = testDB
 
-	pool.inUse <- index
+	select {
+	case pool.inUse <- index:
+		// sent to InUse without blocking
+	default:
+		// channel is full
+	}
 
 	return testDB.TestDatabase, nil
 	// dbHashPool unlocked
@@ -244,7 +249,7 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// !
 
 	// because we return it right away, we treat it as 'inUse'
-	newTestDB, err := pool.extend(ctx, dbStateInUse, p.PoolConfig.TestDBNamePrefix)
+	testDB, err := pool.extend(ctx, dbStateInUse, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
 		if errors.Is(err, ErrPoolFull) && !forceReturn {
 			// we can try to reset test databases that are 'InUse'
@@ -254,9 +259,14 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 		return db.TestDatabase{}, err
 	}
 
-	pool.inUse <- newTestDB.ID
+	select {
+	case pool.inUse <- testDB.ID:
+		// sent to InUse without blocking
+	default:
+		// channel is full
+	}
 
-	return newTestDB, nil
+	return testDB, nil
 }
 
 // ReturnTestDatabase is used to return a DB that is currently 'InUse' to the pool.
@@ -384,7 +394,7 @@ func newDBHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDB
 		dbs:           make([]existingDB, 0, cfg.MaxPoolSize),
 		ready:         make(chan int, cfg.MaxPoolSize),
 		dirty:         make(chan int, cfg.MaxPoolSize),
-		inUse:         make(chan int, cfg.MaxPoolSize),
+		inUse:         make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
 		recreateDB:    makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
 		templateDB:    templateDB,
 		numOfWorkers:  cfg.NumOfWorkers,
@@ -528,43 +538,74 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 // If shouldKeepInUse is set to true, the DB state remains 'InUse'. Otherwise, it is marked as 'Ready'
 // and can be obtained again with GetTestDatabase request - in such case error is nil but returned db.TestDatabase is empty.
 func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix string, shouldKeepInUse bool) (db.TestDatabase, error) {
-	timeout := 10 * time.Millisecond // arbitrary small timeout not to cause deadlock
+	var testDB existingDB
 	var index int
-	select {
-	case <-time.After(timeout):
-		return db.TestDatabase{}, ErrPoolFull
-	case index = <-pool.inUse:
-	}
+	found := false
 
-	// !
-	// dbHashPool locked
-	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
-	pool.Lock()
-	defer pool.Unlock()
-	reg.End()
+	// we want to search in loop for a InUse DB that could be reused
+	tryTimes := 3
+	for i := 0; i < tryTimes; i++ {
 
-	// sanity check, should never happen
-	if index < 0 || index >= len(pool.dbs) {
-		return db.TestDatabase{}, ErrInvalidIndex
-	}
+		timeout := 100 * time.Millisecond // arbitrary small timeout not to cause deadlock
 
-	testDB := pool.dbs[index]
-	if testDB.state == dbStateReady {
-		if shouldKeepInUse {
-			return db.TestDatabase{}, ErrInvalidState
+		select {
+		case <-time.After(timeout):
+			return db.TestDatabase{}, ErrPoolFull
+		case index = <-pool.inUse:
 		}
 
-		return db.TestDatabase{}, nil
+		// !
+		// dbHashPool locked
+		reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
+		pool.Lock()
+		reg.End()
+
+		// sanity check, should never happen
+		if index < 0 || index >= len(pool.dbs) {
+			// if something is wrong with the received index, just return, don't try any other time (maybe RemoveAll was requested)
+			return db.TestDatabase{}, ErrInvalidIndex
+		}
+
+		testDB = pool.dbs[index]
+		pool.Unlock()
+
+		if testDB.state == dbStateReady {
+			// this DB is 'ready' already, we can skip it and search for a dirty one
+			continue
+		}
+
+		if err := pool.recreateDB(ctx, &testDB); err != nil {
+			// this database remains 'InUse'
+			select {
+			case pool.inUse <- index:
+				// sent to InUse without blocking
+			default:
+				// channel is full
+			}
+			continue
+		}
+
+		found = true
+		break
 	}
 
-	if err := pool.recreateDB(ctx, &testDB); err != nil {
-		return db.TestDatabase{}, err
+	if !found {
+		return db.TestDatabase{}, ErrPoolFull
 	}
+
+	pool.Lock()
+	defer pool.Unlock()
 
 	if shouldKeepInUse {
 		testDB.state = dbStateInUse
 		pool.dbs[index] = testDB
-		pool.inUse <- index
+
+		select {
+		case pool.inUse <- index:
+			// sent to InUse without blocking
+		default:
+			// channel is full
+		}
 
 		return testDB.TestDatabase, nil
 	}

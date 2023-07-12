@@ -615,6 +615,8 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseInitialPoolSize = 3
 	cfg.TestDatabaseMaxPoolSize = 3
+	cfg.TestDatabaseForceReturn = true
+	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -730,6 +732,7 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 	cfg.TestDatabaseInitialPoolSize = 1
 	// can be extended, but should first reuse existing
 	cfg.TestDatabaseMaxPoolSize = 3
+	cfg.TestDatabaseForceReturn = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -910,6 +913,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	// there are no db added in background
 	cfg.TestDatabaseInitialPoolSize = 0
+	cfg.TestDatabaseForceReturn = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {

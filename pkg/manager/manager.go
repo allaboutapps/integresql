@@ -336,15 +336,19 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 
 	}
 
-	// before returning create a new test database in background
-	m.wg.Add(1)
-	go func(templ *templates.Template) {
-		defer m.wg.Done()
-		_ = m.createTestDatabaseFromTemplate(ctx, templ)
-	}(template)
-
 	if err != nil {
 		return db.TestDatabase{}, err
+	}
+
+	if !m.config.TestDatabaseForceReturn {
+		// before returning create a new test database in background
+		m.wg.Add(1)
+		go func(templ *templates.Template) {
+			defer m.wg.Done()
+			if err := m.createTestDatabaseFromTemplate(ctx, templ); err != nil {
+				fmt.Printf("integresql: failed to create a new DB in background: %v\n", err)
+			}
+		}(template)
 	}
 
 	return testDB, nil
