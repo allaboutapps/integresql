@@ -228,6 +228,8 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 		return ErrManagerNotReady
 	}
 
+	m.wg.Wait()
+
 	// first remove all DB with this hash
 	if err := m.pool.RemoveAllWithHash(ctx, hash, func(testDB db.TestDatabase) error {
 		return m.dropDatabase(ctx, testDB.Database.Config.Database)

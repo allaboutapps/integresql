@@ -543,7 +543,7 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 	found := false
 
 	// we want to search in loop for a InUse DB that could be reused
-	tryTimes := 3
+	tryTimes := 5
 	for i := 0; i < tryTimes; i++ {
 
 		timeout := 100 * time.Millisecond // arbitrary small timeout not to cause deadlock

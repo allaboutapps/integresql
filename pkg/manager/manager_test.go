@@ -13,6 +13,7 @@ import (
 	"github.com/allaboutapps/integresql/pkg/manager"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestManagerConnect(t *testing.T) {
@@ -652,7 +653,7 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
 }
 
-func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
+func TestManagerGetTestDatabaseExtendingPoolForceReturn(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
@@ -661,6 +662,7 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	// should extend up to 10 on demand
 	cfg.TestDatabaseMaxPoolSize = 10
 	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
+	// force DB return
 	cfg.TestDatabaseForceReturn = true
 	m, _ := testManagerWithConfig(cfg)
 
@@ -702,6 +704,61 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	// should not be able to extend beyond the limit
 	_, err = m.GetTestDatabase(ctx, hash)
 	assert.Error(t, err)
+
+	// discard the template
+	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
+}
+
+func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
+
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseInitialPoolSize = 5
+	cfg.TestDatabaseMaxPoolSize = 5
+	// enable reusing old not returned databases
+	cfg.TestDatabaseForceReturn = false
+	m, _ := testManagerWithConfig(cfg)
+
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < cfg.TestDatabaseMaxPoolSize*5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			testDB, err := m.GetTestDatabase(ctx, hash)
+			require.NoError(t, err)
+			db, err := sql.Open("postgres", testDB.Config.ConnectionString())
+			assert.NoError(t, err)
+
+			// keep an open DB connection for a while
+			time.Sleep(200 * time.Millisecond)
+
+			// now disconnect
+			db.Close()
+			// don't return
+		}()
+	}
+	wg.Wait()
 
 	// discard the template
 	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
