@@ -347,7 +347,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		m.wg.Add(1)
 		go func(templ *templates.Template) {
 			defer m.wg.Done()
-			if err := m.createTestDatabaseFromTemplate(ctx, templ); err != nil {
+			if err := m.createTestDatabaseFromTemplate(m.connectionCtx, templ); err != nil {
 				fmt.Printf("integresql: failed to create a new DB in background: %v\n", err)
 			}
 		}(template)
