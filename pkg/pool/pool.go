@@ -22,9 +22,9 @@ var (
 type dbState int // Indicates a current DB state.
 
 const (
-	dbStateReady dbState = iota // Initialized according to a template and ready to be picked up.
-	dbStateInUse                // Currently in use, can't be reused.
-	dbStateDirty                // Returned to the pool, waiting for the cleaning.
+	dbStateReady              dbState = iota // Initialized according to a template and ready to be picked up.
+	dbStateInUse                             // Currently in use, can't be reused.
+	dbStateWaitingForCleaning                // Returned to the pool, waiting for the cleaning.
 )
 
 const stopWorkerMessage int = -1
@@ -72,10 +72,10 @@ type existingDB struct {
 
 // dbHashPool holds a test DB pool for a certain hash. Each dbHashPool is running cleanup workers in background.
 type dbHashPool struct {
-	dbs   []existingDB
-	ready chan int // ID of initalized DBs according to a template, ready to pick them up
-	dirty chan int // ID of returned DBs, need to be recreated to reuse them
-	inUse chan int // ID of DBs that were given away and are currenly in use
+	dbs                []existingDB
+	ready              chan int // ID of initalized DBs according to a template, ready to pick them up
+	waitingForCleaning chan int // ID of returned DBs, need to be recreated to reuse them
+	inUse              chan int // ID of DBs that were given away and are currenly in use
 
 	recreateDB recreateTestDBFunc
 	templateDB db.Database
@@ -113,7 +113,7 @@ func (p *DBPool) Stop() {
 	defer p.mutex.Unlock()
 
 	for _, pool := range p.pools {
-		close(pool.dirty)
+		close(pool.waitingForCleaning)
 		pool.wg.Wait()
 	}
 
@@ -308,11 +308,11 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 		return ErrInvalidState
 	}
 
-	testDB.state = dbStateDirty
+	testDB.state = dbStateWaitingForCleaning
 	pool.dbs[id] = testDB
 
-	// add it to dirty channel, to have it cleaned up by the worker
-	pool.dirty <- id
+	// add it to waitingForCleaning channel, to have it cleaned up by the worker
+	pool.waitingForCleaning <- id
 
 	return nil
 	// dbHashPool unlocked
@@ -321,7 +321,7 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 
 // ReturnCleanTestDatabase is used to return a DB that is currently 'InUse' to the pool,
 // but has not been modified and is ready to be reused on next GET call.
-// Therefore it's not added to 'dirty' channel and is reused as is.
+// Therefore it's not added to 'waitingForCleaning' channel and is reused as is.
 func (p *DBPool) ReturnCleanTestDatabase(ctx context.Context, hash string, id int) error {
 
 	// !
@@ -391,14 +391,14 @@ func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase)
 
 func newDBHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
 	return &dbHashPool{
-		dbs:           make([]existingDB, 0, cfg.MaxPoolSize),
-		ready:         make(chan int, cfg.MaxPoolSize),
-		dirty:         make(chan int, cfg.MaxPoolSize),
-		inUse:         make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
-		recreateDB:    makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
-		templateDB:    templateDB,
-		numOfWorkers:  cfg.NumOfWorkers,
-		forceDBReturn: cfg.ForceDBReturn,
+		dbs:                make([]existingDB, 0, cfg.MaxPoolSize),
+		ready:              make(chan int, cfg.MaxPoolSize),
+		waitingForCleaning: make(chan int, cfg.MaxPoolSize),
+		inUse:              make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
+		recreateDB:         makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
+		templateDB:         templateDB,
+		numOfWorkers:       cfg.NumOfWorkers,
+		forceDBReturn:      cfg.ForceDBReturn,
 	}
 }
 
@@ -412,12 +412,12 @@ func (pool *dbHashPool) enableWorker(numberOfWorkers int) {
 	}
 }
 
-// workerCleanUpReturnedDB reads 'dirty' channel and cleans up a test DB with the received index.
+// workerCleanUpReturnedDB reads 'waitingForCleaning' channel and cleans up a test DB with the received index.
 // When the DB is recreated according to a template, its index goes to the 'ready' channel.
 func (pool *dbHashPool) workerCleanUpReturnedDB() {
 
-	for dirtyID := range pool.dirty {
-		if dirtyID == stopWorkerMessage {
+	for id := range pool.waitingForCleaning {
+		if id == stopWorkerMessage {
 			break
 		}
 
@@ -427,16 +427,16 @@ func (pool *dbHashPool) workerCleanUpReturnedDB() {
 		pool.RLock()
 		regLock.End()
 
-		if dirtyID < 0 || dirtyID >= len(pool.dbs) {
+		if id < 0 || id >= len(pool.dbs) {
 			// sanity check, should never happen
 			pool.RUnlock()
 			task.End()
 			continue
 		}
-		testDB := pool.dbs[dirtyID]
+		testDB := pool.dbs[id]
 		pool.RUnlock()
 
-		if testDB.state != dbStateDirty {
+		if testDB.state != dbStateWaitingForCleaning {
 			task.End()
 			continue
 		}
@@ -455,7 +455,7 @@ func (pool *dbHashPool) workerCleanUpReturnedDB() {
 		regLock.End()
 
 		testDB.state = dbStateReady
-		pool.dbs[dirtyID] = testDB
+		pool.dbs[id] = testDB
 
 		pool.Unlock()
 
@@ -570,7 +570,7 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 		pool.Unlock()
 
 		if testDB.state == dbStateReady {
-			// this DB is 'ready' already, we can skip it and search for a dirty one
+			// this DB is 'ready' already, we can skip it and search for a waitingForCleaning one
 			continue
 		}
 
@@ -625,7 +625,7 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	// stop the worker
 	// we don't close here because if the remove operation fails, we want to be able to repeat it
 	for i := 0; i < pool.numOfWorkers; i++ {
-		pool.dirty <- stopWorkerMessage
+		pool.waitingForCleaning <- stopWorkerMessage
 	}
 	pool.wg.Wait()
 
@@ -653,7 +653,7 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 
 	// close all only if removal of all succeeded
 	pool.dbs = nil
-	close(pool.dirty)
+	close(pool.waitingForCleaning)
 
 	return nil
 	// dbHashPool unlocked
