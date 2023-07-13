@@ -469,7 +469,10 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 func TestManagerDiscardTemplateDatabase(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TemplateFinalizeTimeout = 200 * time.Millisecond
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
