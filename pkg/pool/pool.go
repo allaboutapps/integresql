@@ -269,10 +269,10 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	return testDB, nil
 }
 
-// ReturnTestDatabase is used to return a DB that is currently 'dirty' to the pool.
-// After successful return, the test DB is cleaned up in the background by a worker.
+// RestoreTestDatabase recreates the given test DB and returns it back to the pool.
+// To have it recreated, it is added to 'waitingForCleaning' channel.
 // If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
-func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
+func (p *DBPool) RestoreTestDatabase(ctx context.Context, hash string, id int) error {
 
 	// !
 	// DBPool locked
@@ -319,11 +319,9 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	// !
 }
 
-// ReturnCleanTestDatabase is used to return a DB that is currently 'dirty' to the pool,
-// but has not been modified and is ready to be reused on next GET call.
-// Therefore it's not added to 'waitingForCleaning' channel and is reused as is.
-func (p *DBPool) ReturnCleanTestDatabase(ctx context.Context, hash string, id int) error {
-
+// ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).
+// If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
+func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 	// !
 	// DBPool locked
 	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
@@ -487,6 +485,8 @@ func (pool *dbHashPool) returnCleanDB(ctx context.Context, id int) error {
 
 	testDB.state = dbStateReady
 	pool.dbs[id] = testDB
+
+	pool.ready <- id
 
 	return nil
 	// dbHashPool unlocked

@@ -376,3 +376,97 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 
 	p.Stop()
 }
+
+func TestPoolReturnTestDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	hash1 := "h1"
+	templateDB1 := db.Database{
+		TemplateHash: hash1,
+		Config: db.DatabaseConfig{
+			Database: "h1_template",
+		},
+	}
+
+	recreateTimesMap := sync.Map{}
+	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+		times, existing := recreateTimesMap.LoadOrStore(testDB.ID, 1)
+		if existing {
+			recreateTimesMap.Store(testDB.ID, times.(int)+1)
+		}
+
+		return nil
+	}
+
+	cfg := pool.PoolConfig{
+		MaxPoolSize:   40,
+		NumOfWorkers:  3,
+		ForceDBReturn: true,
+	}
+	p := pool.NewDBPool(cfg)
+	p.InitHashPool(ctx, templateDB1, initFunc)
+
+	for i := 0; i < cfg.MaxPoolSize; i++ {
+		testDB, err := p.ExtendPool(ctx, templateDB1)
+		assert.NoError(t, err)
+		// return - don't recreate, just bring back directly to the pool
+		assert.NoError(t, p.ReturnTestDatabase(ctx, hash1, testDB.ID))
+	}
+
+	for id := 0; id < cfg.MaxPoolSize; id++ {
+		recreatedTimes, ok := recreateTimesMap.Load(id)
+		assert.True(t, ok)
+		assert.Equal(t, 1, recreatedTimes) // just once to initialize it
+	}
+
+	p.Stop()
+}
+
+func TestPoolRestoreTestDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	hash1 := "h1"
+	templateDB1 := db.Database{
+		TemplateHash: hash1,
+		Config: db.DatabaseConfig{
+			Database: "h1_template",
+		},
+	}
+
+	recreateTimesMap := sync.Map{}
+	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+		times, existing := recreateTimesMap.LoadOrStore(testDB.ID, 1)
+		if existing {
+			recreateTimesMap.Store(testDB.ID, times.(int)+1)
+		}
+
+		return nil
+	}
+
+	cfg := pool.PoolConfig{
+		MaxPoolSize:   40,
+		NumOfWorkers:  3,
+		ForceDBReturn: true,
+	}
+	p := pool.NewDBPool(cfg)
+	p.InitHashPool(ctx, templateDB1, initFunc)
+
+	for i := 0; i < cfg.MaxPoolSize; i++ {
+		testDB, err := p.ExtendPool(ctx, templateDB1)
+		assert.NoError(t, err)
+		// restore - add for cleaning
+		assert.NoError(t, p.RestoreTestDatabase(ctx, hash1, testDB.ID))
+	}
+
+	time.Sleep(100 * time.Millisecond) // wait a tiny bit to have all DB cleaned up
+
+	for id := 0; id < cfg.MaxPoolSize; id++ {
+		recreatedTimes, ok := recreateTimesMap.Load(id)
+		assert.True(t, ok)
+		assert.Equal(t, 2, recreatedTimes) // first time to initialize it, second to clean it
+	}
+
+	p.Stop()
+}
