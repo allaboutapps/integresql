@@ -9,7 +9,9 @@ func InitRoutes(s *api.Server) {
 	g.PUT("/:hash", putFinalizeTemplate(s))
 	g.DELETE("/:hash", deleteDiscardTemplate(s))
 	g.GET("/:hash/tests", getTestDatabase(s))
-	g.DELETE("/:hash/tests/:id", deleteReturnTestDatabase(s))
+	g.DELETE("/:hash/tests/:id", deleteReturnTestDatabase(s)) // deprecated, use POST /unlock instead
+
 	g.POST("/:hash/tests/:id/restore", postRestoreTestDatabase(s))
+	g.POST("/:hash/tests/:id/unlock", postUnlockTestDatabase(s))
 
 }

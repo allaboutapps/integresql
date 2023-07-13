@@ -122,6 +122,10 @@ func getTestDatabase(s *api.Server) echo.HandlerFunc {
 }
 
 func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
+	return postUnlockTestDatabase(s)
+}
+
+func postRestoreTestDatabase(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 		id, err := strconv.Atoi(c.Param("id"))
@@ -129,10 +133,7 @@ func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
-
-		if err := s.Manager.ReturnTestDatabase(ctx, hash, id); err != nil {
+		if err := s.Manager.RestoreTestDatabase(c.Request().Context(), hash, id); err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:
 				return echo.ErrServiceUnavailable
@@ -151,7 +152,7 @@ func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 	}
 }
 
-func postRestoreTestDatabase(s *api.Server) echo.HandlerFunc {
+func postUnlockTestDatabase(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 		id, err := strconv.Atoi(c.Param("id"))
@@ -159,7 +160,10 @@ func postRestoreTestDatabase(s *api.Server) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
 		}
 
-		if err := s.Manager.RestoreTestDatabase(c.Request().Context(), hash, id); err != nil {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+		defer cancel()
+
+		if err := s.Manager.ReturnTestDatabase(ctx, hash, id); err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:
 				return echo.ErrServiceUnavailable
