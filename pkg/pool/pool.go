@@ -304,6 +304,10 @@ func (p *DBPool) RestoreTestDatabase(ctx context.Context, hash string, id int) e
 
 	// check if db is in the correct state
 	testDB := pool.dbs[id]
+	if testDB.state == dbStateReady {
+		return nil
+	}
+
 	if testDB.state != dbStateDirty {
 		return ErrInvalidState
 	}
@@ -336,7 +340,30 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	}
 	p.mutex.Unlock()
 
-	return pool.returnCleanDB(ctx, id)
+	pool.Lock()
+	defer pool.Unlock()
+
+	if id < 0 || id >= len(pool.dbs) {
+		return ErrInvalidIndex
+	}
+
+	// check if db is in the correct state
+	testDB := pool.dbs[id]
+	if testDB.state == dbStateReady {
+		return nil
+	}
+
+	// if not in use, it will be cleaned up by a worker
+	if testDB.state != dbStateDirty {
+		return ErrInvalidState
+	}
+
+	testDB.state = dbStateReady
+	pool.dbs[id] = testDB
+
+	pool.ready <- id
+
+	return nil
 }
 
 // RemoveAllWithHash removes a pool with a given template hash.
@@ -462,35 +489,6 @@ func (pool *dbHashPool) workerCleanUpReturnedDB() {
 		reg.End()
 		task.End()
 	}
-}
-
-func (pool *dbHashPool) returnCleanDB(ctx context.Context, id int) error {
-	pool.Lock()
-	defer pool.Unlock()
-
-	if id < 0 || id >= len(pool.dbs) {
-		return ErrInvalidIndex
-	}
-
-	// check if db is in the correct state
-	testDB := pool.dbs[id]
-	if testDB.state == dbStateReady {
-		return nil
-	}
-
-	// if not in use, it will be cleaned up by a worker
-	if testDB.state != dbStateDirty {
-		return ErrInvalidState
-	}
-
-	testDB.state = dbStateReady
-	pool.dbs[id] = testDB
-
-	pool.ready <- id
-
-	return nil
-	// dbHashPool unlocked
-	// !
 }
 
 func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string) (db.TestDatabase, error) {
