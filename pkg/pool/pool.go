@@ -23,7 +23,7 @@ type dbState int // Indicates a current DB state.
 
 const (
 	dbStateReady              dbState = iota // Initialized according to a template and ready to be picked up.
-	dbStateInUse                             // Currently in use, can't be reused.
+	dbStateDirty                             // Currently in use.
 	dbStateWaitingForCleaning                // Returned to the pool, waiting for the cleaning.
 )
 
@@ -33,7 +33,7 @@ type PoolConfig struct {
 	MaxPoolSize      int
 	TestDBNamePrefix string
 	NumOfWorkers     int  // Number of cleaning workers (each hash pool has enables this number of workers)
-	ForceDBReturn    bool // Force returning test DB. If set to false, test databases that are 'InUse' can be recycled (in not actually used).
+	ForceDBReturn    bool // Force returning test DB. If set to false, test databases that are 'dirty' can be recycled (in not actually used).
 }
 
 type DBPool struct {
@@ -43,7 +43,7 @@ type DBPool struct {
 	mutex sync.RWMutex
 }
 
-// forceDBReturn set to false will allow reusing test databases that are marked as 'InUse'.
+// forceDBReturn set to false will allow reusing test databases that are marked as 'dirty'.
 // Otherwise, test DB has to be returned when no longer needed and there are higher chances of getting ErrPoolFull when requesting a new DB.
 func NewDBPool(cfg PoolConfig) *DBPool {
 	return &DBPool{
@@ -75,7 +75,7 @@ type dbHashPool struct {
 	dbs                []existingDB
 	ready              chan int // ID of initalized DBs according to a template, ready to pick them up
 	waitingForCleaning chan int // ID of returned DBs, need to be recreated to reuse them
-	inUse              chan int // ID of DBs that were given away and are currenly in use
+	dirty              chan int // ID of DBs that were given away and are currenly in use
 
 	recreateDB recreateTestDBFunc
 	templateDB db.Database
@@ -121,7 +121,7 @@ func (p *DBPool) Stop() {
 
 // GetTestDatabase picks up a ready to use test DB. It waits the given timeout until a DB is available.
 // If there is no DB ready and time elapses, ErrTimeout is returned.
-// Otherwise, the obtained test DB is marked as 'InUse' and can be reused only if returned to the pool.
+// Otherwise, the obtained test DB is marked as 'dirty' and can be reused only if returned to the pool.
 func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
 
 	// !
@@ -170,12 +170,12 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 		return
 	}
 
-	testDB.state = dbStateInUse
+	testDB.state = dbStateDirty
 	pool.dbs[index] = testDB
 
 	select {
-	case pool.inUse <- index:
-		// sent to InUse without blocking
+	case pool.dirty <- index:
+		// sent to dirty without blocking
 	default:
 		// channel is full
 	}
@@ -211,8 +211,8 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	newTestDB, err := pool.extend(ctx, dbStateReady, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
 		if errors.Is(err, ErrPoolFull) && !forceReturn {
-			// we can try to reset test databases that are 'InUse'
-			_, err := pool.resetNotReturned(ctx, p.TestDBNamePrefix, false /* shouldKeepInUse */)
+			// we can try to reset test databases that are 'dirty'
+			_, err := pool.resetNotReturned(ctx, p.TestDBNamePrefix, false /* shouldKeepDirty */)
 			return err
 		}
 
@@ -248,20 +248,20 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	// DBPool unlocked
 	// !
 
-	// because we return it right away, we treat it as 'inUse'
-	testDB, err := pool.extend(ctx, dbStateInUse, p.PoolConfig.TestDBNamePrefix)
+	// because we return it right away, we treat it as 'dirty'
+	testDB, err := pool.extend(ctx, dbStateDirty, p.PoolConfig.TestDBNamePrefix)
 	if err != nil {
 		if errors.Is(err, ErrPoolFull) && !forceReturn {
-			// we can try to reset test databases that are 'InUse'
-			return pool.resetNotReturned(ctx, p.TestDBNamePrefix, true /* shouldKeepInUse */)
+			// we can try to reset test databases that are 'dirty'
+			return pool.resetNotReturned(ctx, p.TestDBNamePrefix, true /* shouldKeepDirty */)
 		}
 
 		return db.TestDatabase{}, err
 	}
 
 	select {
-	case pool.inUse <- testDB.ID:
-		// sent to InUse without blocking
+	case pool.dirty <- testDB.ID:
+		// sent to dirty without blocking
 	default:
 		// channel is full
 	}
@@ -269,9 +269,9 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	return testDB, nil
 }
 
-// ReturnTestDatabase is used to return a DB that is currently 'InUse' to the pool.
+// ReturnTestDatabase is used to return a DB that is currently 'dirty' to the pool.
 // After successful return, the test DB is cleaned up in the background by a worker.
-// If the test DB is in a different state than 'InUse', ErrInvalidState is returned.
+// If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
 func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 
 	// !
@@ -304,7 +304,7 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 
 	// check if db is in the correct state
 	testDB := pool.dbs[id]
-	if testDB.state != dbStateInUse {
+	if testDB.state != dbStateDirty {
 		return ErrInvalidState
 	}
 
@@ -319,7 +319,7 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	// !
 }
 
-// ReturnCleanTestDatabase is used to return a DB that is currently 'InUse' to the pool,
+// ReturnCleanTestDatabase is used to return a DB that is currently 'dirty' to the pool,
 // but has not been modified and is ready to be reused on next GET call.
 // Therefore it's not added to 'waitingForCleaning' channel and is reused as is.
 func (p *DBPool) ReturnCleanTestDatabase(ctx context.Context, hash string, id int) error {
@@ -394,7 +394,7 @@ func newDBHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDB
 		dbs:                make([]existingDB, 0, cfg.MaxPoolSize),
 		ready:              make(chan int, cfg.MaxPoolSize),
 		waitingForCleaning: make(chan int, cfg.MaxPoolSize),
-		inUse:              make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
+		dirty:              make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
 		recreateDB:         makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
 		templateDB:         templateDB,
 		numOfWorkers:       cfg.NumOfWorkers,
@@ -481,7 +481,7 @@ func (pool *dbHashPool) returnCleanDB(ctx context.Context, id int) error {
 	}
 
 	// if not in use, it will be cleaned up by a worker
-	if testDB.state != dbStateInUse {
+	if testDB.state != dbStateDirty {
 		return ErrInvalidState
 	}
 
@@ -534,15 +534,15 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 	// !
 }
 
-// resetNotReturned recreates one DB that is 'InUse' and to which no db clients are connected (so it can be dropped).
-// If shouldKeepInUse is set to true, the DB state remains 'InUse'. Otherwise, it is marked as 'Ready'
+// resetNotReturned recreates one DB that is 'dirty' and to which no db clients are connected (so it can be dropped).
+// If shouldKeepDirty is set to true, the DB state remains 'dirty'. Otherwise, it is marked as 'Ready'
 // and can be obtained again with GetTestDatabase request - in such case error is nil but returned db.TestDatabase is empty.
-func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix string, shouldKeepInUse bool) (db.TestDatabase, error) {
+func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix string, shouldKeepDirty bool) (db.TestDatabase, error) {
 	var testDB existingDB
 	var index int
 	found := false
 
-	// we want to search in loop for a InUse DB that could be reused
+	// we want to search in loop for a dirty DB that could be reused
 	tryTimes := 5
 	for i := 0; i < tryTimes; i++ {
 
@@ -551,7 +551,7 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 		select {
 		case <-time.After(timeout):
 			return db.TestDatabase{}, ErrPoolFull
-		case index = <-pool.inUse:
+		case index = <-pool.dirty:
 		}
 
 		// !
@@ -575,10 +575,10 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 		}
 
 		if err := pool.recreateDB(ctx, &testDB); err != nil {
-			// this database remains 'InUse'
+			// this database remains 'dirty'
 			select {
-			case pool.inUse <- index:
-				// sent to InUse without blocking
+			case pool.dirty <- index:
+				// sent to dirty without blocking
 			default:
 				// channel is full
 			}
@@ -596,13 +596,13 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 	pool.Lock()
 	defer pool.Unlock()
 
-	if shouldKeepInUse {
-		testDB.state = dbStateInUse
+	if shouldKeepDirty {
+		testDB.state = dbStateDirty
 		pool.dbs[index] = testDB
 
 		select {
-		case pool.inUse <- index:
-			// sent to InUse without blocking
+		case pool.dirty <- index:
+			// sent to dirty without blocking
 		default:
 			// channel is full
 		}
@@ -610,7 +610,7 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 		return testDB.TestDatabase, nil
 	}
 
-	// if shouldKeepInUse is false, we can add this DB to the ready pool
+	// if shouldKeepDirty is false, we can add this DB to the ready pool
 	testDB.state = dbStateReady
 	pool.dbs[index] = testDB
 	pool.ready <- index
