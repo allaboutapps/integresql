@@ -11,8 +11,10 @@ import (
 
 	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/manager"
+	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestManagerConnect(t *testing.T) {
@@ -468,7 +470,10 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 func TestManagerDiscardTemplateDatabase(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TemplateFinalizeTimeout = 200 * time.Millisecond
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -533,7 +538,10 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 	ctx := context.Background()
 
-	m := testManagerFromEnv()
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TemplateFinalizeTimeout = 200 * time.Millisecond
+	m, _ := testManagerWithConfig(cfg)
+
 	if err := m.Initialize(ctx); err != nil {
 		t.Fatalf("initializing manager failed: %v", err)
 	}
@@ -615,6 +623,8 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseInitialPoolSize = 3
 	cfg.TestDatabaseMaxPoolSize = 3
+	cfg.TestDatabaseForceReturn = true
+	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -650,7 +660,7 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
 }
 
-func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
+func TestManagerGetTestDatabaseExtendingPoolForceReturn(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
@@ -659,6 +669,7 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	// should extend up to 10 on demand
 	cfg.TestDatabaseMaxPoolSize = 10
 	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
+	// force DB return
 	cfg.TestDatabaseForceReturn = true
 	m, _ := testManagerWithConfig(cfg)
 
@@ -705,31 +716,15 @@ func TestManagerGetTestDatabaseExtendingPool(t *testing.T) {
 	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
 }
 
-func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
-	ctx := context.Background()
+func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 
-	m := testManagerFromEnv()
-	if err := m.Initialize(ctx); err != nil {
-		t.Fatalf("initializing manager failed: %v", err)
-	}
-
-	defer disconnectManager(t, m)
-
-	hash := "hashinghash"
-
-	if _, err := m.GetTestDatabase(ctx, hash); err == nil {
-		t.Fatal("succeeded in getting test database for unknown template")
-	}
-}
-
-func TestManagerReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	// there is just 1 database initially
-	cfg.TestDatabaseInitialPoolSize = 1
-	// can be extended, but should first reuse existing
-	cfg.TestDatabaseMaxPoolSize = 3
+	cfg.TestDatabaseInitialPoolSize = 5
+	cfg.TestDatabaseMaxPoolSize = 5
+	// enable reusing old not returned databases
+	cfg.TestDatabaseForceReturn = false
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -751,24 +746,150 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 		t.Fatalf("failed to finalize template database: %v", err)
 	}
 
-	test, err := m.GetTestDatabase(ctx, hash)
-	if err != nil {
-		t.Fatalf("failed to get test database: %v", err)
+	var wg sync.WaitGroup
+	for i := 0; i < cfg.TestDatabaseMaxPoolSize*5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			testDB, err := m.GetTestDatabase(ctx, hash)
+			require.NoError(t, err)
+			db, err := sql.Open("postgres", testDB.Config.ConnectionString())
+			assert.NoError(t, err)
+
+			// keep an open DB connection for a while
+			time.Sleep(200 * time.Millisecond)
+
+			// now disconnect
+			db.Close()
+			// don't return
+		}()
+	}
+	wg.Wait()
+
+	// discard the template
+	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
+}
+
+func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
+	ctx := context.Background()
+
+	m := testManagerFromEnv()
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
 	}
 
-	if err := m.ReturnTestDatabase(ctx, hash, test.ID); err != nil {
-		t.Fatalf("failed to return test database: %v", err)
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	if _, err := m.GetTestDatabase(ctx, hash); err == nil {
+		t.Fatal("succeeded in getting test database for unknown template")
+	}
+}
+
+func TestManagerReturnRestoreTestDatabase(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseInitialPoolSize = 10
+	cfg.NumOfCleaningWorkers = 2
+	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.TestDatabaseForceReturn = true
+	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
+
+	tests := []struct {
+		name         string
+		giveBackFunc func(m *manager.Manager, ctx context.Context, hash string, id int) error
+		resultCheck  func(row *sql.Row, id int)
+	}{
+		{
+			name: "Restore",
+			giveBackFunc: func(m *manager.Manager, ctx context.Context, hash string, id int) error {
+				return m.RestoreTestDatabase(ctx, hash, id)
+			},
+			resultCheck: func(row *sql.Row, id int) {
+				assert.NoError(t, row.Err())
+				var name string
+				assert.ErrorIs(t, row.Scan(&name), sql.ErrNoRows, id)
+			},
+		},
+		{
+			name: "Return",
+			giveBackFunc: func(m *manager.Manager, ctx context.Context, hash string, id int) error {
+				return m.ReturnTestDatabase(ctx, hash, id)
+			},
+			resultCheck: func(row *sql.Row, id int) {
+				assert.NoError(t, row.Err(), id)
+				var name string
+				assert.NoError(t, row.Scan(&name), id)
+				assert.Equal(t, "Snufkin", name)
+			},
+		},
 	}
 
-	originalID := test.ID
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
 
-	test, err = m.GetTestDatabase(ctx, hash)
-	if err != nil {
-		t.Fatalf("failed to get additional test database: %v", err)
-	}
+			m, _ := testManagerWithConfig(cfg)
 
-	if test.ID != originalID {
-		t.Fatalf("failed to reuse returned test database, got ID %d, want ID %d", test.ID, originalID)
+			if err := m.Initialize(ctx); err != nil {
+				t.Fatalf("initializing manager failed: %v", err)
+			}
+
+			defer disconnectManager(t, m)
+
+			hash := "hashinghash"
+
+			template, err := m.InitializeTemplateDatabase(ctx, hash)
+			if err != nil {
+				t.Fatalf("failed to initialize template database: %v", err)
+			}
+
+			populateTemplateDB(t, template)
+
+			if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+				t.Fatalf("failed to finalize template database: %v", err)
+			}
+
+			for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
+				testDB, err := m.GetTestDatabase(ctx, hash)
+				assert.NoError(t, err)
+
+				// open the connection and modify the test DB
+				db, err := sql.Open("postgres", testDB.Config.ConnectionString())
+				require.NoError(t, err)
+				require.NoError(t, db.PingContext(ctx))
+
+				_, err = db.ExecContext(ctx, `INSERT INTO pilots (id, "name", created_at, updated_at) VALUES ('777a1a87-5ef7-4309-8814-0f1054751177', 'Snufkin', '2023-07-13 09:44:00.548', '2023-07-13 09:44:00.548')`)
+				assert.NoError(t, err, testDB.ID)
+				db.Close()
+			}
+
+			_, err = m.GetTestDatabase(ctx, hash)
+			assert.ErrorIs(t, err, pool.ErrPoolFull)
+
+			// restore or return test database
+			for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
+				assert.NoError(t, tt.giveBackFunc(m, ctx, hash, i), i)
+			}
+
+			for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
+				testDB, err := m.GetTestDatabase(ctx, hash)
+				assert.NoError(t, err)
+
+				// assert that test db can be get again
+				// and that it has been cleaned up
+				db, err := sql.Open("postgres", testDB.Config.ConnectionString())
+				require.NoError(t, err)
+				require.NoError(t, db.PingContext(ctx))
+
+				row := db.QueryRowContext(ctx, "SELECT name FROM pilots WHERE id = '777a1a87-5ef7-4309-8814-0f1054751177'")
+				tt.resultCheck(row, testDB.ID)
+				db.Close()
+			}
+		})
 	}
 }
 
@@ -910,6 +1031,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	// there are no db added in background
 	cfg.TestDatabaseInitialPoolSize = 0
+	cfg.TestDatabaseForceReturn = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {

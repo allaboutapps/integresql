@@ -58,7 +58,7 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseOwnerPassword:   util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
 		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
 		TestDatabaseMaxPoolSize:     util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
-		TemplateFinalizeTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 2000)),
+		TemplateFinalizeTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 20000)),
 		TestDatabaseGetTimeout:      time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),
 		NumOfCleaningWorkers:        util.GetEnvAsInt("INTEGRESQL_NUM_OF_CLEANING_WORKERS", 3),
 		TestDatabaseForceReturn:     util.GetEnvAsBool("INTEGRESQL_TEST_DB_FORCE_RETURN", false),
