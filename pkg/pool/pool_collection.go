@@ -184,7 +184,7 @@ func (p *PoolCollection) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc)
 // MakeDBName makes a test DB name with the configured prefix, template hash and ID of the DB.
 func (p *PoolCollection) MakeDBName(hash string, id int) string {
 	p.mutex.RLock()
-	p.mutex.RUnlock()
+	defer p.mutex.RUnlock()
 
 	return makeDBName(p.PoolConfig.TestDBNamePrefix, hash, id)
 }
