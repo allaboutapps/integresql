@@ -14,7 +14,8 @@ import (
 
 func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 	type requestPayload struct {
-		Hash string `json:"hash"`
+		Hash          string `json:"hash"`
+		EnableDBReset bool   `json:"enableReset"`
 	}
 
 	return func(c echo.Context) error {
@@ -31,7 +32,7 @@ func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer cancel()
 
-		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash)
+		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash, payload.EnableDBReset)
 		if err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:

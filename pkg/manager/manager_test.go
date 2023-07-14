@@ -106,7 +106,7 @@ func TestManagerInitializeTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestManagerInitializeTemplateDatabaseTimeout(t *testing.T) {
 	ctxt, cancel := context.WithTimeout(ctx, 10*time.Nanosecond)
 	defer cancel()
 
-	_, err := m.InitializeTemplateDatabase(ctxt, hash)
+	_, err := m.InitializeTemplateDatabase(ctxt, hash, true /* enableDBReset */)
 	if err != context.DeadlineExceeded {
 		t.Fatalf("received unexpected error, got %v, want %v", err, context.DeadlineExceeded)
 	}
@@ -204,7 +204,7 @@ func TestManagerFinalizeTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestManagerGetTestDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 		t.Fatalf("finalize template should not work: %v", err)
 	}
 
-	_, err = m.InitializeTemplateDatabase(ctx, hash)
+	_, err = m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("reinitialize after discard template database should work: %v", err)
 	}
@@ -635,7 +635,7 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -681,7 +681,7 @@ func TestManagerGetTestDatabaseExtendingPoolForceReturn(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -735,7 +735,7 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -842,7 +842,7 @@ func TestManagerReturnResetTestDatabase(t *testing.T) {
 
 			hash := "hashinghash"
 
-			template, err := m.InitializeTemplateDatabase(ctx, hash)
+			template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 			if err != nil {
 				t.Fatalf("failed to initialize template database: %v", err)
 			}
@@ -905,7 +905,7 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -953,7 +953,7 @@ func TestManagerReturnUnknownTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -983,7 +983,7 @@ func TestManagerMultiFinalize(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -1042,7 +1042,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBReset */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}

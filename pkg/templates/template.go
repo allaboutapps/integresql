@@ -18,6 +18,7 @@ const (
 )
 
 type Template struct {
+	TemplateConfig
 	db.Database
 	state TemplateState
 
@@ -25,14 +26,27 @@ type Template struct {
 	mutex sync.RWMutex
 }
 
-func NewTemplate(database db.Database) *Template {
+type TemplateConfig struct {
+	db.DatabaseConfig
+	ResetEnabled bool
+}
+
+func NewTemplate(hash string, config TemplateConfig) *Template {
 	t := &Template{
-		Database: database,
-		state:    TemplateStateInit,
+		TemplateConfig: config,
+		Database:       db.Database{TemplateHash: hash, Config: config.DatabaseConfig},
+		state:          TemplateStateInit,
 	}
 	t.cond = sync.NewCond(&t.mutex)
 
 	return t
+}
+
+func (t *Template) IsResetEnabled(ctx context.Context) bool {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	return t.ResetEnabled
 }
 
 // GetState locks the template and checks its state.

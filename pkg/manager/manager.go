@@ -178,7 +178,7 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
+func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string, enableDBReset bool) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "initialize_template_db")
 	defer task.End()
 
@@ -187,12 +187,15 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	}
 
 	dbName := m.makeTemplateDatabaseName(hash)
-	templateConfig := db.DatabaseConfig{
-		Host:     m.config.ManagerDatabaseConfig.Host,
-		Port:     m.config.ManagerDatabaseConfig.Port,
-		Username: m.config.ManagerDatabaseConfig.Username,
-		Password: m.config.ManagerDatabaseConfig.Password,
-		Database: dbName,
+	templateConfig := templates.TemplateConfig{
+		DatabaseConfig: db.DatabaseConfig{
+			Host:     m.config.ManagerDatabaseConfig.Host,
+			Port:     m.config.ManagerDatabaseConfig.Port,
+			Username: m.config.ManagerDatabaseConfig.Username,
+			Password: m.config.ManagerDatabaseConfig.Password,
+			Database: dbName,
+		},
+		ResetEnabled: enableDBReset,
 	}
 
 	added, unlock := m.templates.Push(ctx, hash, templateConfig)
@@ -214,7 +217,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	return db.TemplateDatabase{
 		Database: db.Database{
 			TemplateHash: hash,
-			Config:       templateConfig,
+			Config:       templateConfig.DatabaseConfig,
 		},
 	}, nil
 }
@@ -406,6 +409,10 @@ func (m *Manager) ResetTestDatabase(ctx context.Context, hash string, id int) er
 	template, found := m.templates.Get(ctx, hash)
 	if !found {
 		return m.dropDatabaseWithID(ctx, hash, id)
+	}
+
+	if !template.IsResetEnabled(ctx) {
+		return nil
 	}
 
 	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) !=

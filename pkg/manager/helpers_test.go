@@ -51,9 +51,12 @@ func disconnectManager(t *testing.T, m *manager.Manager) {
 
 }
 
-func initTemplateDB(ctx context.Context, errs chan<- error, m *manager.Manager) {
+func initTemplateDB(ctx context.Context, errs chan<- error, m *manager.Manager, enableDBReset ...bool) {
 
-	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash")
+	// true by default
+	enableDBResetFlag := !(len(enableDBReset) > 0 && !enableDBReset[0])
+
+	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash", enableDBResetFlag)
 	if err != nil {
 		errs <- err
 		return

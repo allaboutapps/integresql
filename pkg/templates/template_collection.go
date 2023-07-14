@@ -4,8 +4,6 @@ import (
 	"context"
 	"runtime/trace"
 	"sync"
-
-	"github.com/allaboutapps/integresql/pkg/db"
 )
 
 type Collection struct {
@@ -27,7 +25,7 @@ func NewCollection() *Collection {
 // Returns added=false, if the template has been there already.
 // In such case, it is not overwritten! To replace a template, first remove it (via Pop) and then Push again.
 // This function locks the collection and no matter what is its output, the unlock function needs to be called to release the lock.
-func (tc *Collection) Push(ctx context.Context, hash string, template db.DatabaseConfig) (added bool, unlock Unlock) {
+func (tc *Collection) Push(ctx context.Context, hash string, config TemplateConfig) (added bool, unlock Unlock) {
 	reg := trace.StartRegion(ctx, "get_template_lock")
 	tc.collMutex.Lock()
 
@@ -41,7 +39,7 @@ func (tc *Collection) Push(ctx context.Context, hash string, template db.Databas
 		return false, unlock
 	}
 
-	tc.templates[hash] = NewTemplate(db.Database{TemplateHash: hash, Config: template})
+	tc.templates[hash] = NewTemplate(hash, config)
 	return true, unlock
 }
 

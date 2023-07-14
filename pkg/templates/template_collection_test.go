@@ -15,9 +15,11 @@ func TestTemplateCollection(t *testing.T) {
 	ctx := context.Background()
 
 	coll := templates.NewCollection()
-	cfg := db.DatabaseConfig{
-		Username: "ich",
-		Database: "template_test",
+	cfg := templates.TemplateConfig{
+		DatabaseConfig: db.DatabaseConfig{
+			Username: "ich",
+			Database: "template_test",
+		},
 	}
 	hash := "123"
 
