@@ -216,7 +216,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string, e
 
 	// if template config has been overwritten, the existing pool needs to be removed
 	err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB)
-	if err != nil && !errors.Is(err, pool.ErrUnknownHash){
+	if err != nil && !errors.Is(err, pool.ErrUnknownHash) {
 		m.templates.RemoveUnsafe(ctx, hash)
 
 		return db.TemplateDatabase{}, err
@@ -242,9 +242,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	m.wg.Wait()
 
 	// first remove all DB with this hash
-	if err := m.pool.RemoveAllWithHash(ctx, hash, func(testDB db.TestDatabase) error {
-		return m.dropDatabase(ctx, testDB.Database.Config.Database)
-	}); err != nil && !errors.Is(err, pool.ErrUnknownHash) {
+	if err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB); err != nil && !errors.Is(err, pool.ErrUnknownHash) {
 		return err
 	}
 
@@ -296,7 +294,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	}
 
 	// Init a pool with this hash
-	m.pool.InitHashPool(ctx, template.Database, m.recreateTestDB)
+	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
 
 	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
@@ -340,7 +338,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		// Template exists, but the pool is not there -
 		// it must have been removed.
 		// It needs to be reinitialized.
-		m.pool.InitHashPool(ctx, template.Database, m.recreateTestDB)
+		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
 
 		// pool initalized, create one test db
 		testDB, err = m.pool.ExtendPool(ctx, template.Database)
@@ -419,6 +417,7 @@ func (m *Manager) ResetTestDatabase(ctx context.Context, hash string, id int) er
 		return m.dropDatabaseWithID(ctx, hash, id)
 	}
 
+	// don't allow to reset if it's not enabled for this template
 	if !template.IsResetEnabled(ctx) {
 		return nil
 	}
@@ -450,11 +449,7 @@ func (m *Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) er
 		return ErrManagerNotReady
 	}
 
-	removeFunc := func(testDB db.TestDatabase) error {
-		return m.dropDatabase(ctx, testDB.Config.Database)
-	}
-
-	err := m.pool.RemoveAllWithHash(ctx, hash, removeFunc)
+	err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB)
 	if errors.Is(err, pool.ErrUnknownHash) {
 		return ErrTemplateNotFound
 	}
@@ -470,10 +465,7 @@ func (m *Manager) ResetAllTracking(ctx context.Context) error {
 	// remove all templates to disallow any new test DB creation from existing templates
 	m.templates.RemoveAll(ctx)
 
-	removeFunc := func(testDB db.TestDatabase) error {
-		return m.dropDatabase(ctx, testDB.Config.Database)
-	}
-	if err := m.pool.RemoveAll(ctx, removeFunc); err != nil {
+	if err := m.pool.RemoveAll(ctx, m.dropTestPoolDB); err != nil {
 		return err
 	}
 
@@ -523,7 +515,7 @@ func (m *Manager) recreateTestPoolDB(ctx context.Context, testDB db.TestDatabase
 }
 
 func (m *Manager) dropTestPoolDB(ctx context.Context, testDB db.TestDatabase) error {
-	return return m.dropDatabase(ctx, testDB.Config.Database)
+	return m.dropDatabase(ctx, testDB.Config.Database)
 }
 
 func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
@@ -576,7 +568,7 @@ func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Templa
 		for i := 0; i < count; i++ {
 			if err := m.createTestDatabaseFromTemplate(ctx, template); err != nil {
 				// TODO anna: error handling
-				// fmt.Printf("integresql: failed to initialize DB: %v\n", err)
+				fmt.Printf("integresql: failed to initialize DB from template: %v\n", err)
 			}
 		}
 	}()

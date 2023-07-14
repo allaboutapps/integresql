@@ -217,7 +217,7 @@ func TestPoolRemoveAll(t *testing.T) {
 		t.Log("(re)create ", testDB.Database)
 		return nil
 	}
-	removeFunc := func(testDB db.TestDatabase) error {
+	removeFunc := func(ctx context.Context, testDB db.TestDatabase) error {
 		t.Log("remove ", testDB.Database)
 		return nil
 	}

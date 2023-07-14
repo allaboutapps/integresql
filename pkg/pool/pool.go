@@ -256,7 +256,7 @@ func (pool *dbHashPool) resetNotReturned(ctx context.Context, testDBPrefix strin
 	// !
 }
 
-func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
+func (pool *dbHashPool) removeAll(ctx context.Context, removeFunc RemoveDBFunc) error {
 
 	// stop the worker
 	// we don't close here because if the remove operation fails, we want to be able to repeat it
@@ -278,7 +278,7 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	for id := len(pool.dbs) - 1; id >= 0; id-- {
 		testDB := pool.dbs[id].TestDatabase
 
-		if err := removeFunc(testDB); err != nil {
+		if err := removeFunc(ctx, testDB); err != nil {
 			return err
 		}
 

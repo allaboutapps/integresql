@@ -37,6 +37,9 @@ func NewPoolCollection(cfg PoolConfig) *PoolCollection {
 // RecreateDBFunc callback executed when a pool is extended or the DB cleaned up by a worker.
 type RecreateDBFunc func(ctx context.Context, testDB db.TestDatabase, templateName string) error
 
+// RemoveDBFunc callback executed to remove a database
+type RemoveDBFunc func(ctx context.Context, testDB db.TestDatabase) error
+
 func makeActualRecreateTestDBFunc(templateName string, userRecreateFunc RecreateDBFunc) recreateTestDBFunc {
 	return func(ctx context.Context, testDBWrapper *existingDB) error {
 		testDBWrapper.createdAt = time.Now()
@@ -322,7 +325,7 @@ func (p *PoolCollection) ReturnTestDatabase(ctx context.Context, hash string, id
 
 // RemoveAllWithHash removes a pool with a given template hash.
 // All background workers belonging to this pool are stopped.
-func (p *PoolCollection) RemoveAllWithHash(ctx context.Context, hash string, removeFunc func(db.TestDatabase) error) error {
+func (p *PoolCollection) RemoveAllWithHash(ctx context.Context, hash string, removeFunc RemoveDBFunc) error {
 
 	// !
 	// PoolCollection locked
@@ -336,7 +339,7 @@ func (p *PoolCollection) RemoveAllWithHash(ctx context.Context, hash string, rem
 		return ErrUnknownHash
 	}
 
-	if err := pool.removeAll(removeFunc); err != nil {
+	if err := pool.removeAll(ctx, removeFunc); err != nil {
 		return err
 	}
 
@@ -349,14 +352,14 @@ func (p *PoolCollection) RemoveAllWithHash(ctx context.Context, hash string, rem
 }
 
 // RemoveAll removes all tracked pools.
-func (p *PoolCollection) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
+func (p *PoolCollection) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc) error {
 	// !
 	// PoolCollection locked
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	for hash, pool := range p.pools {
-		if err := pool.removeAll(removeFunc); err != nil {
+		if err := pool.removeAll(ctx, removeFunc); err != nil {
 			return err
 		}
 
