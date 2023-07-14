@@ -214,6 +214,14 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string, e
 	}
 	reg.End()
 
+	// if template config has been overwritten, the existing pool needs to be removed
+	err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB)
+	if err != nil && !errors.Is(err, pool.ErrUnknownHash){
+		m.templates.RemoveUnsafe(ctx, hash)
+
+		return db.TemplateDatabase{}, err
+	}
+
 	return db.TemplateDatabase{
 		Database: db.Database{
 			TemplateHash: hash,
@@ -510,8 +518,12 @@ func (m *Manager) createDatabase(ctx context.Context, dbName string, owner strin
 	return nil
 }
 
-func (m *Manager) recreateTestDB(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+func (m *Manager) recreateTestPoolDB(ctx context.Context, testDB db.TestDatabase, templateName string) error {
 	return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
+}
+
+func (m *Manager) dropTestPoolDB(ctx context.Context, testDB db.TestDatabase) error {
+	return return m.dropDatabase(ctx, testDB.Config.Database)
 }
 
 func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
