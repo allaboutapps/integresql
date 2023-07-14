@@ -36,13 +36,14 @@ func TestPoolAddGet(t *testing.T) {
 		t.Log("(re)create ", testDB.Database)
 		return nil
 	}
+	p.InitHashPool(ctx, templateDB, initFunc)
 
 	// get from empty
 	_, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.Error(t, err, pool.ErrTimeout)
 
 	// add a new one
-	assert.NoError(t, p.AddTestDatabase(ctx, templateDB, initFunc))
+	assert.NoError(t, p.AddTestDatabase(ctx, templateDB))
 	// get it
 	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.NoError(t, err)
@@ -50,10 +51,12 @@ func TestPoolAddGet(t *testing.T) {
 	assert.Equal(t, "ich", testDB.Database.Config.Username)
 
 	// add for h2
-	templateDB.TemplateHash = hash2
-	assert.NoError(t, p.AddTestDatabase(ctx, templateDB, initFunc))
-	assert.NoError(t, p.AddTestDatabase(ctx, templateDB, initFunc))
-	assert.ErrorIs(t, p.AddTestDatabase(ctx, templateDB, initFunc), pool.ErrPoolFull)
+	templateDB2 := templateDB
+	templateDB2.TemplateHash = hash2
+	p.InitHashPool(ctx, templateDB2, initFunc)
+	assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
+	assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
+	assert.ErrorIs(t, p.AddTestDatabase(ctx, templateDB2), pool.ErrPoolFull)
 
 	// get from empty h1
 	_, err = p.GetTestDatabase(ctx, hash1, 0)
@@ -114,8 +117,8 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 
 		// add DBs sequentially
 		for i := 0; i < cfg.MaxPoolSize; i++ {
-			assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
-			assert.NoError(t, p.AddTestDatabase(ctx, templateDB2, initFunc))
+			assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
+			assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
 			time.Sleep(sleepDuration)
 		}
 	}()
@@ -166,13 +169,15 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 		ForceDBReturn:    true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	p.InitHashPool(ctx, templateDB1, initFunc)
+	p.InitHashPool(ctx, templateDB2, initFunc)
 
 	var wg sync.WaitGroup
 
 	// add DBs sequentially
 	for i := 0; i < cfg.MaxPoolSize/2; i++ {
-		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
-		assert.NoError(t, p.AddTestDatabase(ctx, templateDB2, initFunc))
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
 	}
 
 	// try to get them from another goroutines in parallel
@@ -224,11 +229,13 @@ func TestPoolRemoveAll(t *testing.T) {
 		ForceDBReturn:    true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	p.InitHashPool(ctx, templateDB1, initFunc)
+	p.InitHashPool(ctx, templateDB2, initFunc)
 
 	// add DBs sequentially
 	for i := 0; i < cfg.MaxPoolSize; i++ {
-		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
-		assert.NoError(t, p.AddTestDatabase(ctx, templateDB2, initFunc))
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
 	}
 
 	// remove all
@@ -241,7 +248,8 @@ func TestPoolRemoveAll(t *testing.T) {
 	assert.Error(t, err, pool.ErrTimeout)
 
 	// start using pool again
-	assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
+	p.InitHashPool(ctx, templateDB1, initFunc)
+	assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
 	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, testDB.ID)
@@ -270,11 +278,12 @@ func TestPoolInit(t *testing.T) {
 		ForceDBReturn:    true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	p.InitHashPool(ctx, templateDB1, initFunc)
 
 	// we will test 2 ways of adding new DBs
 	for i := 0; i < cfg.MaxPoolSize/2; i++ {
 		// add and get freshly added DB
-		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1, initFunc))
+		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
 		_, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
 		assert.NoError(t, err)
 

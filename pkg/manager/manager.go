@@ -549,7 +549,7 @@ func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *
 		return ErrInvalidTemplateState
 	}
 
-	return m.pool.AddTestDatabase(ctx, template.Database, m.recreateTestDB)
+	return m.pool.AddTestDatabase(ctx, template.Database)
 }
 
 // Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.

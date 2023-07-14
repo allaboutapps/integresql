@@ -51,10 +51,6 @@ func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Databas
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	_ = p.initHashPool(ctx, templateDB, initDBFunc)
-}
-
-func (p *PoolCollection) initHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
 	// create a new dbHashPool
 	pool := newDBHashPool(p.PoolConfig, templateDB, initDBFunc)
 	// and start the cleaning worker
@@ -62,8 +58,6 @@ func (p *PoolCollection) initHashPool(ctx context.Context, templateDB db.Databas
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
-
-	return pool
 }
 
 // Stop is used to stop all background workers
@@ -148,7 +142,7 @@ func (p *PoolCollection) GetTestDatabase(ctx context.Context, hash string, timeo
 // The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
 // If the pool size has already reached MAX, ErrPoolFull is returned, unless ForceDBReturn flag is set to false.
 // Then databases that were given away would get reset (if no DB connection is currently open) and marked as 'Ready'.
-func (p *PoolCollection) AddTestDatabase(ctx context.Context, templateDB db.Database, initFunc RecreateDBFunc) error {
+func (p *PoolCollection) AddTestDatabase(ctx context.Context, templateDB db.Database) error {
 	hash := templateDB.TemplateHash
 
 	// !
@@ -159,7 +153,8 @@ func (p *PoolCollection) AddTestDatabase(ctx context.Context, templateDB db.Data
 	pool := p.pools[hash]
 
 	if pool == nil {
-		pool = p.initHashPool(ctx, templateDB, initFunc)
+		p.mutex.Unlock()
+		return ErrUnknownHash
 	}
 
 	forceReturn := p.ForceDBReturn
