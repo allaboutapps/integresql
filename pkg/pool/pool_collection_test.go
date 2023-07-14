@@ -21,7 +21,7 @@ func TestPoolAddGet(t *testing.T) {
 		TestDBNamePrefix: "prefix_",
 		ForceDBReturn:    true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 
 	hash1 := "h1"
 	hash2 := "h2"
@@ -94,7 +94,7 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 		TestDBNamePrefix: "",
 		ForceDBReturn:    true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 
 	var wg sync.WaitGroup
 	sleepDuration := 100 * time.Millisecond
@@ -165,7 +165,7 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 		TestDBNamePrefix: "",
 		ForceDBReturn:    true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 
 	var wg sync.WaitGroup
 
@@ -223,7 +223,7 @@ func TestPoolRemoveAll(t *testing.T) {
 		TestDBNamePrefix: "",
 		ForceDBReturn:    true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 
 	// add DBs sequentially
 	for i := 0; i < cfg.MaxPoolSize; i++ {
@@ -269,7 +269,7 @@ func TestPoolInit(t *testing.T) {
 		TestDBNamePrefix: "",
 		ForceDBReturn:    true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 
 	// we will test 2 ways of adding new DBs
 	for i := 0; i < cfg.MaxPoolSize/2; i++ {
@@ -340,7 +340,7 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 		TestDBNamePrefix: "test_",
 		ForceDBReturn:    false,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 	p.InitHashPool(ctx, templateDB1, initFunc)
 
 	for i := 0; i < cfg.MaxPoolSize; i++ {
@@ -404,7 +404,7 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 		NumOfWorkers:  3,
 		ForceDBReturn: true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 	p.InitHashPool(ctx, templateDB1, initFunc)
 
 	for i := 0; i < cfg.MaxPoolSize; i++ {
@@ -450,7 +450,7 @@ func TestPoolRestoreTestDatabase(t *testing.T) {
 		NumOfWorkers:  3,
 		ForceDBReturn: true,
 	}
-	p := pool.NewDBPool(cfg)
+	p := pool.NewPoolCollection(cfg)
 	p.InitHashPool(ctx, templateDB1, initFunc)
 
 	for i := 0; i < cfg.MaxPoolSize; i++ {

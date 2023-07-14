@@ -32,7 +32,7 @@ type Manager struct {
 	wg     sync.WaitGroup
 
 	templates *templates.Collection
-	pool      *pool.DBPool
+	pool      *pool.PoolCollection
 
 	connectionCtx       context.Context // DB connection context used for adding initial DBs in background
 	cancelConnectionCtx func()          // Cancel function for DB connection context
@@ -53,7 +53,7 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		db:        nil,
 		wg:        sync.WaitGroup{},
 		templates: templates.NewCollection(),
-		pool: pool.NewDBPool(
+		pool: pool.NewPoolCollection(
 			pool.PoolConfig{
 				MaxPoolSize:      config.TestDatabaseMaxPoolSize,
 				TestDBNamePrefix: testDBPrefix,
