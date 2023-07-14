@@ -50,7 +50,7 @@ type HashPool struct {
 }
 
 // NewHashPool creates new hash pool with the given config.
-// If EnableDBReset is true, cleanup workers start automatically.
+// If EnableDBRecreate is true, cleanup workers start automatically.
 func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *HashPool {
 
 	pool := &HashPool{
@@ -64,7 +64,7 @@ func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFu
 		PoolConfig: cfg,
 	}
 
-	if pool.EnableDBReset {
+	if pool.EnableDBRecreate {
 		pool.enableWorkers()
 	}
 
@@ -121,9 +121,9 @@ func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Databas
 
 	newTestDB, err := pool.extend(ctx, dbStateReady)
 	if err != nil {
-		if errors.Is(err, ErrPoolFull) && !pool.EnableDBReset {
-			// we can try to reset test databases that are 'dirty'
-			_, err := pool.resetNotReturned(ctx, false /* shouldKeepDirty */)
+		if errors.Is(err, ErrPoolFull) && !pool.EnableDBRecreate {
+			// we can try to recreate test databases that are 'dirty'
+			_, err := pool.recreateDirtyDB(ctx, false /* shouldKeepDirty */)
 			return err
 		}
 
@@ -141,9 +141,9 @@ func (pool *HashPool) ExtendPool(ctx context.Context, templateDB db.Database) (d
 	// because we return it right away, we treat it as 'dirty'
 	testDB, err := pool.extend(ctx, dbStateDirty)
 	if err != nil {
-		if errors.Is(err, ErrPoolFull) && !pool.EnableDBReset {
-			// we can try to reset test databases that are 'dirty'
-			return pool.resetNotReturned(ctx, true /* shouldKeepDirty */)
+		if errors.Is(err, ErrPoolFull) && !pool.EnableDBRecreate {
+			// we can try to recreate test databases that are 'dirty'
+			return pool.recreateDirtyDB(ctx, true /* shouldKeepDirty */)
 		}
 
 		return db.TestDatabase{}, err
@@ -159,7 +159,7 @@ func (pool *HashPool) ExtendPool(ctx context.Context, templateDB db.Database) (d
 	return testDB, nil
 }
 
-func (pool *HashPool) ResetTestDatabase(ctx context.Context, hash string, id int) error {
+func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
 	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
 	defer pool.Unlock()
@@ -218,7 +218,7 @@ func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id in
 }
 
 func (pool *HashPool) enableWorkers() {
-	if !pool.EnableDBReset {
+	if !pool.EnableDBRecreate {
 		return
 	}
 
@@ -326,10 +326,10 @@ func (pool *HashPool) extend(ctx context.Context, state dbState) (db.TestDatabas
 	// !
 }
 
-// resetNotReturned recreates one DB that is 'dirty' and to which no db clients are connected (so it can be dropped).
+// recreateDirtyDB recreates one DB that is 'dirty' and to which no db clients are connected (so it can be dropped).
 // If shouldKeepDirty is set to true, the DB state remains 'dirty'. Otherwise, it is marked as 'Ready'
 // and can be obtained again with GetTestDatabase request - in such case error is nil but returned db.TestDatabase is empty.
-func (pool *HashPool) resetNotReturned(ctx context.Context, shouldKeepDirty bool) (db.TestDatabase, error) {
+func (pool *HashPool) recreateDirtyDB(ctx context.Context, shouldKeepDirty bool) (db.TestDatabase, error) {
 	var testDB existingDB
 	var index int
 	found := false

@@ -17,7 +17,7 @@ type PoolConfig struct {
 	MaxPoolSize      int
 	TestDBNamePrefix string
 	NumOfWorkers     int  // Number of cleaning workers (each hash pool runs this number of workers).
-	EnableDBReset    bool // Enables resetting test databases with the cleanup workers. If this flag is on, it's no longer possible to reuse dirty (currently in use, 'locked') databases when MAX pool size is reached.
+	EnableDBRecreate bool // Enables recreating test databases with the cleanup workers. If this flag is on, it's no longer possible to reuse dirty (currently in use, 'locked') databases when MAX pool size is reached.
 }
 
 type PoolCollection struct {
@@ -27,7 +27,7 @@ type PoolCollection struct {
 	mutex sync.RWMutex
 }
 
-// enableDBReset set to false will allow reusing test databases that are marked as 'dirty'.
+// enableDBRecreate set to false will allow reusing test databases that are marked as 'dirty'.
 // Otherwise, test DB has to be returned when no longer needed and there are higher chances of getting ErrPoolFull when requesting a new DB.
 func NewPoolCollection(cfg PoolConfig) *PoolCollection {
 	return &PoolCollection{
@@ -52,17 +52,17 @@ func makeActualRecreateTestDBFunc(templateName string, userRecreateFunc Recreate
 type recreateTestDBFunc func(context.Context, *existingDB) error
 
 // InitHashPool creates a new pool with a given template hash and starts the cleanup workers.
-func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc, enableDBReset bool) {
+func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc, enableDBRecreate bool) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	cfg := p.PoolConfig
-	if p.EnableDBReset {
-		// only if the main config allows for DB reset, it can be enabled
-		cfg.EnableDBReset = enableDBReset
+	if p.EnableDBRecreate {
+		// only if the main config allows for DB recreate, it can be enabled
+		cfg.EnableDBRecreate = enableDBRecreate
 	}
 
-	// Create a new HashPool. If resetting is enabled, workers start automatically.
+	// Create a new HashPool. If recreating is enabled, workers start automatically.
 	pool := NewHashPool(cfg, templateDB, initDBFunc)
 
 	// pool is ready
@@ -95,8 +95,8 @@ func (p *PoolCollection) GetTestDatabase(ctx context.Context, hash string, timeo
 
 // AddTestDatabase adds a new test DB to the pool and creates it according to the template.
 // The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
-// If the pool size has already reached MAX, ErrPoolFull is returned, unless EnableDBReset flag is set to false.
-// Then databases that were given away would get reset (if no DB connection is currently open) and marked as 'Ready'.
+// If the pool size has already reached MAX, ErrPoolFull is returned, unless EnableDBRecreate flag is set to false.
+// Then databases that were given away would get recreate (if no DB connection is currently open) and marked as 'Ready'.
 func (p *PoolCollection) AddTestDatabase(ctx context.Context, templateDB db.Database) error {
 	hash := templateDB.TemplateHash
 
@@ -121,17 +121,17 @@ func (p *PoolCollection) ExtendPool(ctx context.Context, templateDB db.Database)
 	return pool.ExtendPool(ctx, templateDB)
 }
 
-// ResetTestDatabase recreates the given test DB and returns it back to the pool.
+// RecreateTestDatabase recreates the given test DB and returns it back to the pool.
 // To have it recreated, it is added to 'waitingForCleaning' channel.
 // If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
-func (p *PoolCollection) ResetTestDatabase(ctx context.Context, hash string, id int) error {
+func (p *PoolCollection) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
 
 	pool, err := p.getPool(ctx, hash)
 	if err != nil {
 		return err
 	}
 
-	return pool.ResetTestDatabase(ctx, hash, id)
+	return pool.RecreateTestDatabase(ctx, hash, id)
 }
 
 // ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).

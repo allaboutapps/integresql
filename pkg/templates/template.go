@@ -28,7 +28,7 @@ type Template struct {
 
 type TemplateConfig struct {
 	db.DatabaseConfig
-	ResetEnabled bool
+	RecreateEnabled bool
 }
 
 func NewTemplate(hash string, config TemplateConfig) *Template {
@@ -42,11 +42,11 @@ func NewTemplate(hash string, config TemplateConfig) *Template {
 	return t
 }
 
-func (t *Template) IsResetEnabled(ctx context.Context) bool {
+func (t *Template) IsRecreateEnabled(ctx context.Context) bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
-	return t.ResetEnabled
+	return t.RecreateEnabled
 }
 
 func (t *Template) GetConfig(ctx context.Context) TemplateConfig {
@@ -131,6 +131,6 @@ func (l lockedTemplate) SetState(ctx context.Context, newState TemplateState) {
 }
 
 func (c TemplateConfig) Equals(other TemplateConfig) bool {
-	return c.ResetEnabled == other.ResetEnabled &&
+	return c.RecreateEnabled == other.RecreateEnabled &&
 		c.DatabaseConfig.Database == other.DatabaseConfig.Database
 }

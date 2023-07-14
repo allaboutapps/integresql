@@ -126,7 +126,7 @@ func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 	return postUnlockTestDatabase(s)
 }
 
-func postResetTestDatabase(s *api.Server) echo.HandlerFunc {
+func postRecreateTestDatabase(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 		id, err := strconv.Atoi(c.Param("id"))
@@ -134,7 +134,7 @@ func postResetTestDatabase(s *api.Server) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
 		}
 
-		if err := s.Manager.ResetTestDatabase(c.Request().Context(), hash, id); err != nil {
+		if err := s.Manager.RecreateTestDatabase(c.Request().Context(), hash, id); err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:
 				return echo.ErrServiceUnavailable

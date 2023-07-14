@@ -70,7 +70,7 @@ func TestTemplateCollectionPushWithOtherConfig(t *testing.T) {
 			Username: "ich",
 			Database: "template_test",
 		},
-		ResetEnabled: true,
+		RecreateEnabled: true,
 	}
 	hash := "123"
 
@@ -82,7 +82,7 @@ func TestTemplateCollectionPushWithOtherConfig(t *testing.T) {
 	assert.False(t, added)
 	unlock()
 
-	cfg.ResetEnabled = false
+	cfg.RecreateEnabled = false
 	cfg.Database = "template_another"
 	added, unlock = coll.Push(ctx, hash, cfg)
 	assert.True(t, added)
@@ -91,7 +91,7 @@ func TestTemplateCollectionPushWithOtherConfig(t *testing.T) {
 	// try to get again when the template is locked
 	template, found := coll.Get(ctx, hash)
 	assert.True(t, found)
-	assert.False(t, template.ResetEnabled)
+	assert.False(t, template.RecreateEnabled)
 	assert.Equal(t, "template_another", template.Config.Database)
 
 }
