@@ -58,7 +58,7 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 				MaxPoolSize:      config.TestDatabaseMaxPoolSize,
 				TestDBNamePrefix: testDBPrefix,
 				NumOfWorkers:     config.NumOfCleaningWorkers,
-				ForceDBReturn:    config.TestDatabaseForceReturn,
+				EnableDBReset:    config.TestDatabaseEnableReset,
 			},
 		),
 		connectionCtx: context.TODO(),
@@ -294,7 +294,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	}
 
 	// Init a pool with this hash
-	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
+	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB, template.ResetEnabled)
 
 	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
 	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
@@ -338,7 +338,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		// Template exists, but the pool is not there -
 		// it must have been removed.
 		// It needs to be reinitialized.
-		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
+		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB, template.IsResetEnabled(ctx))
 
 		// pool initalized, create one test db
 		testDB, err = m.pool.ExtendPool(ctx, template.Database)
@@ -351,7 +351,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, err
 	}
 
-	if !m.config.TestDatabaseForceReturn {
+	if !m.config.TestDatabaseEnableReset {
 		// before returning create a new test database in background
 		m.wg.Add(1)
 		go func(ctx context.Context, templ *templates.Template) {

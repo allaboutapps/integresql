@@ -21,7 +21,7 @@ type ManagerConfig struct {
 	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
 	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database before extending the pool
 	NumOfCleaningWorkers        int           // Number of pool workers cleaning up dirty DBs
-	TestDatabaseForceReturn     bool          // Force returning used test DBs. If set to true, error "pool full" can be returned when extending is requested and max pool size is reached. Otherwise old test DBs will be reused.
+	TestDatabaseEnableReset     bool          // Enables resetting test databases with the cleanup workers. If this flag is on, it's no longer possible to reuse dirty (currently in use, 'locked') databases when MAX pool size is reached.
 }
 
 func DefaultManagerConfigFromEnv() ManagerConfig {
@@ -61,6 +61,6 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TemplateFinalizeTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 20000)),
 		TestDatabaseGetTimeout:      time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),
 		NumOfCleaningWorkers:        util.GetEnvAsInt("INTEGRESQL_NUM_OF_CLEANING_WORKERS", 3),
-		TestDatabaseForceReturn:     util.GetEnvAsBool("INTEGRESQL_TEST_DB_FORCE_RETURN", false),
+		TestDatabaseEnableReset:     util.GetEnvAsBool("INTEGRESQL_TEST_DB_ENABLE_RESET", false),
 	}
 }
