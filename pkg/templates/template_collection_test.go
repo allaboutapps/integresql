@@ -60,3 +60,38 @@ func TestTemplateCollection(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "ich", template3.Config.Username)
 }
+
+func TestTemplateCollectionPushWithOtherConfig(t *testing.T) {
+	ctx := context.Background()
+
+	coll := templates.NewCollection()
+	cfg := templates.TemplateConfig{
+		DatabaseConfig: db.DatabaseConfig{
+			Username: "ich",
+			Database: "template_test",
+		},
+		ResetEnabled: true,
+	}
+	hash := "123"
+
+	added, unlock := coll.Push(ctx, hash, cfg)
+	assert.True(t, added)
+	unlock()
+
+	added, unlock = coll.Push(ctx, hash, cfg)
+	assert.False(t, added)
+	unlock()
+
+	cfg.ResetEnabled = false
+	cfg.Database = "template_another"
+	added, unlock = coll.Push(ctx, hash, cfg)
+	assert.True(t, added)
+	unlock()
+
+	// try to get again when the template is locked
+	template, found := coll.Get(ctx, hash)
+	assert.True(t, found)
+	assert.False(t, template.ResetEnabled)
+	assert.Equal(t, "template_another", template.Config.Database)
+
+}

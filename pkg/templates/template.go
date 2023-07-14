@@ -49,6 +49,13 @@ func (t *Template) IsResetEnabled(ctx context.Context) bool {
 	return t.ResetEnabled
 }
 
+func (t *Template) GetConfig(ctx context.Context) TemplateConfig {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	return t.TemplateConfig
+}
+
 // GetState locks the template and checks its state.
 func (t *Template) GetState(ctx context.Context) TemplateState {
 	t.mutex.RLock()
@@ -121,4 +128,9 @@ func (l lockedTemplate) SetState(ctx context.Context, newState TemplateState) {
 
 	l.t.state = newState
 	l.t.cond.Broadcast()
+}
+
+func (c TemplateConfig) Equals(other TemplateConfig) bool {
+	return c.ResetEnabled == other.ResetEnabled &&
+		c.DatabaseConfig.Database == other.DatabaseConfig.Database
 }
