@@ -423,7 +423,7 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 	p.Stop()
 }
 
-func TestPoolRestoreTestDatabase(t *testing.T) {
+func TestPoolResetTestDatabase(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -456,8 +456,8 @@ func TestPoolRestoreTestDatabase(t *testing.T) {
 	for i := 0; i < cfg.MaxPoolSize; i++ {
 		testDB, err := p.ExtendPool(ctx, templateDB1)
 		assert.NoError(t, err)
-		// restore - add for cleaning
-		assert.NoError(t, p.RestoreTestDatabase(ctx, hash1, testDB.ID))
+		// reset - add for cleaning
+		assert.NoError(t, p.ResetTestDatabase(ctx, hash1, testDB.ID))
 	}
 
 	time.Sleep(100 * time.Millisecond) // wait a tiny bit to have all DB cleaned up

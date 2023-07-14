@@ -788,7 +788,7 @@ func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
 	}
 }
 
-func TestManagerReturnRestoreTestDatabase(t *testing.T) {
+func TestManagerReturnResetTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
@@ -804,9 +804,9 @@ func TestManagerReturnRestoreTestDatabase(t *testing.T) {
 		resultCheck  func(row *sql.Row, id int)
 	}{
 		{
-			name: "Restore",
+			name: "Reset",
 			giveBackFunc: func(m *manager.Manager, ctx context.Context, hash string, id int) error {
-				return m.RestoreTestDatabase(ctx, hash, id)
+				return m.ResetTestDatabase(ctx, hash, id)
 			},
 			resultCheck: func(row *sql.Row, id int) {
 				assert.NoError(t, row.Err())
@@ -870,7 +870,7 @@ func TestManagerReturnRestoreTestDatabase(t *testing.T) {
 			_, err = m.GetTestDatabase(ctx, hash)
 			assert.ErrorIs(t, err, pool.ErrPoolFull)
 
-			// restore or return test database
+			// reset or return test database
 			for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
 				assert.NoError(t, tt.giveBackFunc(m, ctx, hash, i), i)
 			}

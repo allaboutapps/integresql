@@ -393,9 +393,9 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 	return nil
 }
 
-// RestoreTestDatabase recreates the test DB according to the template and returns it back to the pool.
-func (m *Manager) RestoreTestDatabase(ctx context.Context, hash string, id int) error {
-	ctx, task := trace.NewTask(ctx, "restore_test_db")
+// ResetTestDatabase recreates the test DB according to the template and returns it back to the pool.
+func (m *Manager) ResetTestDatabase(ctx context.Context, hash string, id int) error {
+	ctx, task := trace.NewTask(ctx, "reset_test_db")
 	defer task.End()
 
 	if !m.Ready() {
@@ -415,7 +415,7 @@ func (m *Manager) RestoreTestDatabase(ctx context.Context, hash string, id int) 
 	}
 
 	// template is ready, we can returb the testDB to the pool and have it cleaned up
-	if err := m.pool.RestoreTestDatabase(ctx, hash, id); err != nil {
+	if err := m.pool.ResetTestDatabase(ctx, hash, id); err != nil {
 		if !(errors.Is(err, pool.ErrInvalidIndex) ||
 			errors.Is(err, pool.ErrUnknownHash)) {
 			// other error is an internal error

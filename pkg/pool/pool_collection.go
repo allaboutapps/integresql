@@ -228,10 +228,10 @@ func (p *PoolCollection) ExtendPool(ctx context.Context, templateDB db.Database)
 	return testDB, nil
 }
 
-// RestoreTestDatabase recreates the given test DB and returns it back to the pool.
+// ResetTestDatabase recreates the given test DB and returns it back to the pool.
 // To have it recreated, it is added to 'waitingForCleaning' channel.
 // If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
-func (p *PoolCollection) RestoreTestDatabase(ctx context.Context, hash string, id int) error {
+func (p *PoolCollection) ResetTestDatabase(ctx context.Context, hash string, id int) error {
 
 	// !
 	// PoolCollection locked
