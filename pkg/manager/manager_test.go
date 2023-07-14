@@ -876,11 +876,10 @@ func TestManagerReturnResetTestDatabase(t *testing.T) {
 			}
 
 			for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
+				// assert that test db can be get again
 				testDB, err := m.GetTestDatabase(ctx, hash)
 				assert.NoError(t, err)
 
-				// assert that test db can be get again
-				// and that it has been cleaned up
 				db, err := sql.Open("postgres", testDB.Config.ConnectionString())
 				require.NoError(t, err)
 				require.NoError(t, db.PingContext(ctx))
@@ -891,6 +890,66 @@ func TestManagerReturnResetTestDatabase(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManagerResetTestDatabaseRecreateDisabled(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseInitialPoolSize = 5
+	cfg.NumOfCleaningWorkers = 2
+	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.TestDatabaseEnableReset = true
+	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
+
+	m, _ := testManagerWithConfig(cfg)
+
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash, false /*enableReset*/)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
+
+	testDB, err := m.GetTestDatabase(ctx, hash)
+	assert.NoError(t, err)
+
+	// open the connection and modify the test DB
+	db, err := sql.Open("postgres", testDB.Config.ConnectionString())
+	require.NoError(t, err)
+	require.NoError(t, db.PingContext(ctx))
+
+	_, err = db.ExecContext(ctx, `INSERT INTO pilots (id, "name", created_at, updated_at) VALUES ('777a1a87-5ef7-4309-8814-0f1054751177', 'Snufkin', '2023-07-13 09:44:00.548', '2023-07-13 09:44:00.548')`)
+	assert.NoError(t, err, testDB.ID)
+	db.Close()
+
+	// assert.NoError(t, m.ResetTestDatabase(ctx, hash, testDB.ID))
+
+	time.Sleep(100 * time.Millisecond) // sleep sufficient time to recreate the db by a worker (which should not happen)
+
+	db, err = sql.Open("postgres", testDB.Config.ConnectionString())
+	require.NoError(t, err)
+	require.NoError(t, db.PingContext(ctx))
+
+	// assert that the data is still there, even after ResetTestDatabase is called
+	row := db.QueryRowContext(ctx, "SELECT name FROM pilots WHERE id = '777a1a87-5ef7-4309-8814-0f1054751177'")
+	assert.NoError(t, row.Err())
+	var name string
+	assert.NoError(t, row.Scan(&name))
+	assert.Equal(t, "Snufkin", name)
+	db.Close()
 }
 
 func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {

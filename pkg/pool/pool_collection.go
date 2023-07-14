@@ -23,7 +23,7 @@ type PoolConfig struct {
 type PoolCollection struct {
 	PoolConfig
 
-	pools map[string]*dbHashPool // map[hash]
+	pools map[string]*HashPool // map[hash]
 	mutex sync.RWMutex
 }
 
@@ -31,7 +31,7 @@ type PoolCollection struct {
 // Otherwise, test DB has to be returned when no longer needed and there are higher chances of getting ErrPoolFull when requesting a new DB.
 func NewPoolCollection(cfg PoolConfig) *PoolCollection {
 	return &PoolCollection{
-		pools:      make(map[string]*dbHashPool),
+		pools:      make(map[string]*HashPool),
 		PoolConfig: cfg,
 	}
 }
@@ -56,10 +56,14 @@ func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Databas
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// create a new dbHashPool
-	pool := newDBHashPool(p.PoolConfig, templateDB, initDBFunc, enableDBReset)
-	// and start the cleaning worker
-	pool.enableWorker(p.NumOfWorkers)
+	cfg := p.PoolConfig
+	if p.EnableDBReset {
+		// only if the main config allows for DB reset, it can be enabled
+		cfg.EnableDBReset = enableDBReset
+	}
+
+	// Create a new HashPool. If resetting is enabled, workers start automatically.
+	pool := NewHashPool(cfg, templateDB, initDBFunc)
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
@@ -190,7 +194,7 @@ func makeDBName(testDBPrefix string, hash string, id int) string {
 	return fmt.Sprintf("%s%s_%03d", testDBPrefix, hash, id)
 }
 
-func (p *PoolCollection) getPool(ctx context.Context, hash string) (pool *dbHashPool, err error) {
+func (p *PoolCollection) getPool(ctx context.Context, hash string) (pool *HashPool, err error) {
 	reg := trace.StartRegion(ctx, "wait_for_rlock_main_pool")
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
@@ -205,7 +209,7 @@ func (p *PoolCollection) getPool(ctx context.Context, hash string) (pool *dbHash
 	return pool, nil
 }
 
-func (p *PoolCollection) getPoolLockCollection(ctx context.Context, hash string) (pool *dbHashPool, unlock func(), err error) {
+func (p *PoolCollection) getPoolLockCollection(ctx context.Context, hash string) (pool *HashPool, unlock func(), err error) {
 	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
 	p.mutex.Lock()
 	unlock = func() { p.mutex.Unlock() }

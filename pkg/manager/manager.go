@@ -186,6 +186,11 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string, e
 		return db.TemplateDatabase{}, ErrManagerNotReady
 	}
 
+	if !m.config.TestDatabaseEnableReset {
+		// only if the main config allows for DB reset, it can be enabled
+		enableDBReset = false
+	}
+
 	dbName := m.makeTemplateDatabaseName(hash)
 	templateConfig := templates.TemplateConfig{
 		DatabaseConfig: db.DatabaseConfig{
@@ -351,7 +356,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, err
 	}
 
-	if !m.config.TestDatabaseEnableReset {
+	if !template.IsResetEnabled(ctx) {
 		// before returning create a new test database in background
 		m.wg.Add(1)
 		go func(ctx context.Context, templ *templates.Template) {
