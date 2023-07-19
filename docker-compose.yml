@@ -5,15 +5,16 @@ services:
     build:
       context: .
       target: development
-    ports:
-      - "5000:5000"
+    # ports:
+    #   - "5000:5000"
     working_dir: /app
     volumes:
       - .:/app #:delegated
       # - ./.pkg:/go/pkg # enable this to reuse the pkg cache
     depends_on:
       - postgres
-    environment: &SERVICE_ENV
+    environment:
+      &SERVICE_ENV
       PGDATABASE: &PSQL_DBNAME "sample"
       PGUSER: &PSQL_USER "dbuser"
       PGPASSWORD: &PSQL_PASS "testpass"
