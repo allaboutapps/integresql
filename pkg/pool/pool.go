@@ -88,7 +88,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 		}
 	} else {
 		// wait indefinately!
-		fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
+		// fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
 		select {
 		case <-ctx.Done():
 			err = ErrTimeout
@@ -96,7 +96,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 		case index = <-pool.ready:
 		}
 
-		fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
+		// fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
 	}
 
 	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
@@ -122,7 +122,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	// sanity check, should never happen - we got this index from 'ready' channel
 	if testDB.state != dbStateReady {
 
-		fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
+		// fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
 
 		err = ErrInvalidState
 		return
@@ -142,19 +142,19 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	if !pool.EnableDBRecreate && len(pool.dbs) < pool.PoolConfig.MaxPoolSize {
 
 		go func(pool *HashPool, testDBNamePrefix string) {
-			fmt.Printf("pool#%s: bg extend...\n", hash)
+			// fmt.Printf("pool#%s: bg extend...\n", hash)
 			newTestDB, err := pool.extend(context.Background(), dbStateReady)
 			if err != nil {
-				fmt.Printf("pool#%s: extend failed with error: %v\n", hash, err)
+				// fmt.Printf("pool#%s: extend failed with error: %v\n", hash, err)
 				return
 			}
 
-			fmt.Printf("pool#%s: extended ID=%v\n", hash, newTestDB.ID)
+			// fmt.Printf("pool#%s: extended ID=%v\n", hash, newTestDB.ID)
 			pool.ready <- newTestDB.ID
 		}(pool, pool.TestDBNamePrefix)
 	}
 
-	fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
+	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 
 	return testDB.TestDatabase, nil
 
@@ -284,7 +284,7 @@ func (pool *HashPool) workerCleanUpTask() {
 			break
 		}
 
-		fmt.Printf("workerCleanUpReturnedDB %d\n", id)
+		// fmt.Printf("workerCleanUpReturnedDB %d\n", id)
 
 		ctx, task := trace.NewTask(context.Background(), "worker_cleanup_task")
 
@@ -390,7 +390,7 @@ func (pool *HashPool) pushNotReturnedDirtyToCleaning() {
 
 	select {
 	case id := <-pool.dirty:
-		fmt.Printf("pushNotReturnedDirtyToCleaning %d\n", id)
+		// fmt.Printf("pushNotReturnedDirtyToCleaning %d\n", id)
 		pool.Lock()
 		defer pool.Unlock()
 		testDB := pool.dbs[id]

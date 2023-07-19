@@ -363,17 +363,6 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, err
 	}
 
-	// if !template.IsRecreateEnabled(ctx) {
-	// 	// before returning create a new test database in background
-	// 	m.wg.Add(1)
-	// 	go func(ctx context.Context, templ *templates.Template) {
-	// 		defer m.wg.Done()
-	// 		if err := m.createTestDatabaseFromTemplate(ctx, templ); err != nil {
-	// 			fmt.Printf("integresql: failed to create a new DB in background: %v\n", err)
-	// 		}
-	// 	}(m.connectionCtx, template)
-	// }
-
 	return testDB, nil
 }
 
@@ -501,7 +490,7 @@ func (m *Manager) dropDatabaseWithID(ctx context.Context, hash string, id int) e
 func (m *Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool, error) {
 	var exists bool
 
-	fmt.Printf("SELECT 1 AS exists FROM pg_database WHERE datname = %s\n", dbName)
+	// fmt.Printf("SELECT 1 AS exists FROM pg_database WHERE datname = %s\n", dbName)
 
 	if err := m.db.QueryRowContext(ctx, "SELECT 1 AS exists FROM pg_database WHERE datname = $1", dbName).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
@@ -537,7 +526,7 @@ func (m *Manager) createDatabase(ctx context.Context, dbName string, owner strin
 
 	defer trace.StartRegion(ctx, "create_db").End()
 
-	fmt.Printf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s\n", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))
+	// fmt.Printf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s\n", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))); err != nil {
 		return err
@@ -569,7 +558,7 @@ func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 
 	defer trace.StartRegion(ctx, "drop_db").End()
 
-	fmt.Printf("DROP DATABASE IF EXISTS %s\n", pq.QuoteIdentifier(dbName))
+	// fmt.Printf("DROP DATABASE IF EXISTS %s\n", pq.QuoteIdentifier(dbName))
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		if strings.Contains(err.Error(), "is being accessed by other users") {
