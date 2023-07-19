@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/templates"
 	"github.com/stretchr/testify/assert"
 )
@@ -12,7 +11,7 @@ import (
 func TestTemplateGetSetState(t *testing.T) {
 	ctx := context.Background()
 
-	t1 := templates.NewTemplate(db.Database{TemplateHash: "123"})
+	t1 := templates.NewTemplate("123", templates.TemplateConfig{})
 	state := t1.GetState(ctx)
 	assert.Equal(t, templates.TemplateStateInit, state)
 
@@ -31,7 +30,7 @@ func TestTemplateGetSetState(t *testing.T) {
 // 	goroutineNum := 10
 
 // 	// initalize a new template, not ready yet
-// 	t1 := templates.NewTemplate(db.Database{TemplateHash: "123"})
+// 	t1 := templates.NewTemplate("123", templates.TemplateConfig{})
 // 	state := t1.GetState(ctx)
 // 	assert.Equal(t, templates.TemplateStateInit, state)
 

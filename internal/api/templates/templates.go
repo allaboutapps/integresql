@@ -14,7 +14,8 @@ import (
 
 func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 	type requestPayload struct {
-		Hash string `json:"hash"`
+		Hash             string `json:"hash"`
+		EnableDBRecreate bool   `json:"enableRecreate"`
 	}
 
 	return func(c echo.Context) error {
@@ -31,7 +32,7 @@ func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer cancel()
 
-		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash)
+		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash, payload.EnableDBRecreate)
 		if err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:
@@ -125,7 +126,7 @@ func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 	return postUnlockTestDatabase(s)
 }
 
-func postRestoreTestDatabase(s *api.Server) echo.HandlerFunc {
+func postRecreateTestDatabase(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 		id, err := strconv.Atoi(c.Param("id"))
@@ -133,7 +134,7 @@ func postRestoreTestDatabase(s *api.Server) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
 		}
 
-		if err := s.Manager.RestoreTestDatabase(c.Request().Context(), hash, id); err != nil {
+		if err := s.Manager.RecreateTestDatabase(c.Request().Context(), hash, id); err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:
 				return echo.ErrServiceUnavailable

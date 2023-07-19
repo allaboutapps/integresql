@@ -12,7 +12,6 @@ import (
 )
 
 var (
-	ErrUnknownHash  = errors.New("no database pool exists for this hash")
 	ErrPoolFull     = errors.New("database pool is full")
 	ErrInvalidState = errors.New("database state is not valid for this operation")
 	ErrInvalidIndex = errors.New("invalid database index (id)")
@@ -31,50 +30,14 @@ const (
 
 const stopWorkerMessage int = -1
 
-type PoolConfig struct {
-	MaxPoolSize      int
-	InitialPoolSize  int
-	TestDBNamePrefix string
-	NumOfWorkers     int  // Number of cleaning workers (each hash pool has enables this number of workers)
-	ForceDBReturn    bool // Force returning test DB. If set to false, test databases that are 'dirty' can be recycled (in not actually used).
-}
-
-type DBPool struct {
-	PoolConfig
-
-	pools map[string]*dbHashPool // map[hash]
-	mutex sync.RWMutex
-}
-
-// forceDBReturn set to false will allow reusing test databases that are marked as 'dirty'.
-// Otherwise, test DB has to be returned when no longer needed and there are higher chances of getting ErrPoolFull when requesting a new DB.
-func NewDBPool(cfg PoolConfig) *DBPool {
-	return &DBPool{
-		pools:      make(map[string]*dbHashPool),
-		PoolConfig: cfg,
-	}
-}
-
-// RecreateDBFunc callback executed when a pool is extended or the DB cleaned up by a worker.
-type RecreateDBFunc func(ctx context.Context, testDB db.TestDatabase, templateName string) error
-
-func makeActualRecreateTestDBFunc(templateName string, userRecreateFunc RecreateDBFunc) recreateTestDBFunc {
-	return func(ctx context.Context, testDBWrapper *existingDB) error {
-		testDBWrapper.createdAt = time.Now()
-		return userRecreateFunc(ctx, testDBWrapper.TestDatabase, templateName)
-	}
-}
-
-type recreateTestDBFunc func(context.Context, *existingDB) error
-
 type existingDB struct {
 	state     dbState
 	createdAt time.Time
 	db.TestDatabase
 }
 
-// dbHashPool holds a test DB pool for a certain hash. Each dbHashPool is running cleanup workers in background.
-type dbHashPool struct {
+// HashPool holds a test DB pool for a certain hash. Each HashPool is running cleanup workers in background.
+type HashPool struct {
 	dbs                []existingDB
 	ready              chan int // ID of initalized DBs according to a template, ready to pick them up
 	waitingForCleaning chan int // ID of returned DBs, need to be recreated to reuse them
@@ -82,75 +45,41 @@ type dbHashPool struct {
 
 	recreateDB recreateTestDBFunc
 	templateDB db.Database
-
-	numOfWorkers  int
-	forceDBReturn bool
+	PoolConfig
 
 	sync.RWMutex
 	wg sync.WaitGroup
 }
 
-// InitHashPool creates a new pool with a given template hash and starts the cleanup workers.
-func (p *DBPool) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+// NewHashPool creates new hash pool with the given config.
+// If EnableDBRecreate is true, cleanup workers start automatically.
+func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *HashPool {
 
-	_ = p.initHashPool(ctx, templateDB, initDBFunc)
-}
+	pool := &HashPool{
+		dbs:                make([]existingDB, 0, cfg.MaxPoolSize),
+		ready:              make(chan int, cfg.MaxPoolSize),
+		waitingForCleaning: make(chan int, cfg.MaxPoolSize),
+		dirty:              make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
 
-func (p *DBPool) initHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
-	// create a new dbHashPool
-	pool := newDBHashPool(p.PoolConfig, templateDB, initDBFunc)
-	// and start the cleaning worker
-	pool.enableWorker(p.NumOfWorkers)
+		recreateDB: makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
+		templateDB: templateDB,
+		PoolConfig: cfg,
+	}
 
-	// pool is ready
-	p.pools[pool.templateDB.TemplateHash] = pool
+	pool.enableWorkers()
 
 	return pool
 }
 
-// Stop is used to stop all background workers
-func (p *DBPool) Stop() {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	for _, pool := range p.pools {
-		close(pool.waitingForCleaning)
-		pool.wg.Wait()
-	}
-
+func (pool *HashPool) Stop() {
+	close(pool.waitingForCleaning)
+	pool.wg.Wait()
 }
 
-// GetTestDatabase picks up a ready to use test DB. It waits the given timeout until a DB is available.
-// If there is no DB ready and time elapses, ErrTimeout is returned.
-// Otherwise, the obtained test DB is marked as 'dirty' and can be reused only if returned to the pool.
-func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
-
-	// !
-	// DBPool locked
-	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
-	p.mutex.RLock()
-	reg.End()
-	pool := p.pools[hash]
-
-	if pool == nil {
-		// no such pool
-		p.mutex.RUnlock()
-		err = ErrUnknownHash
-		return
-	}
-
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), p.PoolConfig.InitialPoolSize, p.PoolConfig.MaxPoolSize)
-
-	forceReturn := p.ForceDBReturn
-
-	p.mutex.RUnlock()
-	// DBPool unlocked
-	// !
+func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
 
 	var index int
-	if forceReturn {
+	if pool.EnableDBRecreate {
 		select {
 		case <-time.After(timeout):
 			err = ErrTimeout
@@ -159,7 +88,7 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 		}
 	} else {
 		// wait indefinately!
-		// fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
+		fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
 		select {
 		case <-ctx.Done():
 			err = ErrTimeout
@@ -167,14 +96,18 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 		case index = <-pool.ready:
 		}
 
-		// fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
+		fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
 	}
 
-	// !
-	// dbHashPool locked
-
-	reg = trace.StartRegion(ctx, "wait_for_lock_hash_pool")
+	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
+
+	// LEGACY HANDLING: we try to ensure that InitialPoolSize count is staying ready
+	// thus, we try to move the oldest dirty dbs into cleaning
+	if !pool.EnableDBRecreate && len(pool.dbs) >= pool.PoolConfig.MaxPoolSize {
+		go pool.pushNotReturnedDirtyToCleaning()
+	}
+
 	defer pool.Unlock()
 
 	reg.End()
@@ -189,7 +122,7 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 	// sanity check, should never happen - we got this index from 'ready' channel
 	if testDB.state != dbStateReady {
 
-		// fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
+		fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
 
 		err = ErrInvalidState
 		return
@@ -205,62 +138,38 @@ func (p *DBPool) GetTestDatabase(ctx context.Context, hash string, timeout time.
 		// channel is full
 	}
 
-	// LEGACY HANDLING: we try to ensure that InitialPoolSize count is staying ready
-	// thus, we try to move the oldest dirty dbs into cleaning
-	if !forceReturn {
-		// pool.Lock()
-		if len(pool.dbs) >= p.PoolConfig.MaxPoolSize {
-			go pool.pushNotReturnedDirtyToCleaning()
-		}
-		// pool.Unlock()
-	}
-
 	// LEGACY HANDLING: Always try to extend in the BG until we reach the max pool limit...
-	if !forceReturn && len(pool.dbs) < p.PoolConfig.MaxPoolSize {
+	if !pool.EnableDBRecreate && len(pool.dbs) < pool.PoolConfig.MaxPoolSize {
 
-		go func(pool *dbHashPool, testDBNamePrefix string) {
-			// fmt.Printf("pool#%s: bg extend...\n", hash)
-			newTestDB, err := pool.extend(context.Background(), dbStateReady, testDBNamePrefix)
+		go func(pool *HashPool, testDBNamePrefix string) {
+			fmt.Printf("pool#%s: bg extend...\n", hash)
+			newTestDB, err := pool.extend(context.Background(), dbStateReady)
 			if err != nil {
-				// fmt.Printf("pool#%s: extend failed with error: %v\n", hash, err)
+				fmt.Printf("pool#%s: extend failed with error: %v\n", hash, err)
 				return
 			}
 
-			// fmt.Printf("pool#%s: extended ID=%v\n", hash, newTestDB.ID)
+			fmt.Printf("pool#%s: extended ID=%v\n", hash, newTestDB.ID)
 			pool.ready <- newTestDB.ID
-		}(pool, p.PoolConfig.TestDBNamePrefix)
+		}(pool, pool.TestDBNamePrefix)
 	}
+
+	fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 
 	return testDB.TestDatabase, nil
-	// dbHashPool unlocked
-	// !
+
 }
 
-// AddTestDatabase adds a new test DB to the pool and creates it according to the template.
-// The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
-// If the pool size has already reached MAX, ErrPoolFull is returned.
-func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, initFunc RecreateDBFunc) error {
-	hash := templateDB.TemplateHash
+func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Database) error {
 
-	// !
-	// DBPool locked
-	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
-	p.mutex.Lock()
-	reg.End()
-	pool := p.pools[hash]
-
-	if pool == nil {
-		pool = p.initHashPool(ctx, templateDB, initFunc)
-	}
-
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (AddTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), p.PoolConfig.InitialPoolSize, p.PoolConfig.MaxPoolSize)
-
-	p.mutex.Unlock()
-	// DBPool unlocked
-	// !
-
-	newTestDB, err := pool.extend(ctx, dbStateReady, p.PoolConfig.TestDBNamePrefix)
+	newTestDB, err := pool.extend(ctx, dbStateReady)
 	if err != nil {
+		// if errors.Is(err, ErrPoolFull) && !pool.EnableDBRecreate {
+		// 	// we can try to recreate test databases that are 'dirty'
+		// 	_, err := pool.recreateDirtyDB(ctx, false /* shouldKeepDirty */)
+		// 	return err
+		// }
+
 		return err
 	}
 
@@ -270,38 +179,20 @@ func (p *DBPool) AddTestDatabase(ctx context.Context, templateDB db.Database, in
 	return nil
 }
 
-// AddTestDatabase adds a new test DB to the pool, creates it according to the template, and returns it right away to the caller.
-// The new test DB is marked as 'IsUse' and won't be picked up with GetTestDatabase, until it's returned to the pool.
-func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.TestDatabase, error) {
+func (pool *HashPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.TestDatabase, error) {
 
-	if !p.ForceDBReturn {
+	if !pool.EnableDBRecreate {
 		return db.TestDatabase{}, ErrUnsupported
 	}
 
-	hash := templateDB.TemplateHash
-
-	// !
-	// DBPool locked
-	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
-	p.mutex.Lock()
-	reg.End()
-	pool := p.pools[hash]
-
-	if pool == nil {
-		// meant to be only for already initialized pools
-		p.mutex.Unlock()
-		return db.TestDatabase{}, ErrUnknownHash
-	}
-
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (ExtendPool)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), p.PoolConfig.InitialPoolSize, p.PoolConfig.MaxPoolSize)
-
-	p.mutex.Unlock()
-	// DBPool unlocked
-	// !
-
 	// because we return it right away, we treat it as 'dirty'
-	testDB, err := pool.extend(ctx, dbStateDirty, p.PoolConfig.TestDBNamePrefix)
+	testDB, err := pool.extend(ctx, dbStateDirty)
 	if err != nil {
+		// if errors.Is(err, ErrPoolFull) && !pool.EnableDBRecreate {
+		// 	// we can try to recreate test databases that are 'dirty'
+		// 	return pool.recreateDirtyDB(ctx, true /* shouldKeepDirty */)
+		// }
+
 		return db.TestDatabase{}, err
 	}
 
@@ -315,36 +206,11 @@ func (p *DBPool) ExtendPool(ctx context.Context, templateDB db.Database) (db.Tes
 	return testDB, nil
 }
 
-// RestoreTestDatabase recreates the given test DB and returns it back to the pool.
-// To have it recreated, it is added to 'waitingForCleaning' channel.
-// If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
-func (p *DBPool) RestoreTestDatabase(ctx context.Context, hash string, id int) error {
-
-	// !
-	// DBPool locked
-	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
-	p.mutex.Lock()
-	reg.End()
-	pool := p.pools[hash]
-
-	if pool == nil {
-		// no such pool
-		p.mutex.Unlock()
-		return ErrUnknownHash
-	}
-
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (RestoreTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), p.PoolConfig.InitialPoolSize, p.PoolConfig.MaxPoolSize)
-
-	// !
-	// dbHashPool locked
-	reg = trace.StartRegion(ctx, "wait_for_lock_hash_pool")
+func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
+	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
 	defer pool.Unlock()
 	reg.End()
-
-	p.mutex.Unlock()
-	// DBPool unlocked
-	// !
 
 	if id < 0 || id >= len(pool.dbs) {
 		return ErrInvalidIndex
@@ -367,30 +233,10 @@ func (p *DBPool) RestoreTestDatabase(ctx context.Context, hash string, id int) e
 	pool.waitingForCleaning <- id
 
 	return nil
-	// dbHashPool unlocked
-	// !
+
 }
 
-// ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).
-// If the test DB is in a different state than 'dirty', ErrInvalidState is returned.
-func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
-	// !
-	// DBPool locked
-	reg := trace.StartRegion(ctx, "wait_for_lock_main_pool")
-	p.mutex.Lock()
-	reg.End()
-	pool := p.pools[hash]
-
-	if pool == nil {
-		// no such pool
-		p.mutex.Unlock()
-		return ErrUnknownHash
-	}
-
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (ReturnTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), p.PoolConfig.InitialPoolSize, p.PoolConfig.MaxPoolSize)
-
-	p.mutex.Unlock()
-
+func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 	pool.Lock()
 	defer pool.Unlock()
 
@@ -415,91 +261,30 @@ func (p *DBPool) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	pool.ready <- id
 
 	return nil
+
 }
 
-// RemoveAllWithHash removes a pool with a given template hash.
-// All background workers belonging to this pool are stopped.
-func (p *DBPool) RemoveAllWithHash(ctx context.Context, hash string, removeFunc func(db.TestDatabase) error) error {
+func (pool *HashPool) enableWorkers() {
 
-	// !
-	// DBPool locked
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	pool := p.pools[hash]
-
-	if pool == nil {
-		// no such pool
-		return ErrUnknownHash
-	}
-
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (RemoveAllWithHash)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), p.PoolConfig.InitialPoolSize, p.PoolConfig.MaxPoolSize)
-
-	if err := pool.removeAll(removeFunc); err != nil {
-		return err
-	}
-
-	// all DBs have been removed, now remove the pool itself
-	delete(p.pools, hash)
-
-	return nil
-	// DBPool unlocked
-	// !
-}
-
-// RemoveAll removes all tracked pools.
-func (p *DBPool) RemoveAll(ctx context.Context, removeFunc func(db.TestDatabase) error) error {
-	// !
-	// DBPool locked
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	for hash, pool := range p.pools {
-		if err := pool.removeAll(removeFunc); err != nil {
-			return err
-		}
-
-		delete(p.pools, hash)
-	}
-
-	return nil
-	// DBPool unlocked
-	// !
-}
-
-func newDBHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *dbHashPool {
-	return &dbHashPool{
-		dbs:                make([]existingDB, 0, cfg.MaxPoolSize),
-		ready:              make(chan int, cfg.MaxPoolSize),
-		waitingForCleaning: make(chan int, cfg.MaxPoolSize),
-		dirty:              make(chan int, 3*cfg.MaxPoolSize), // here indexes can be duplicated
-		recreateDB:         makeActualRecreateTestDBFunc(templateDB.Config.Database, initDBFunc),
-		templateDB:         templateDB,
-		numOfWorkers:       cfg.NumOfWorkers,
-		forceDBReturn:      cfg.ForceDBReturn,
-	}
-}
-
-func (pool *dbHashPool) enableWorker(numberOfWorkers int) {
-	for i := 0; i < numberOfWorkers; i++ {
+	for i := 0; i < pool.NumOfWorkers; i++ {
 		pool.wg.Add(1)
 		go func() {
 			defer pool.wg.Done()
-			pool.workerCleanUpReturnedDB()
+			pool.workerCleanUpTask()
 		}()
 	}
 }
 
-// workerCleanUpReturnedDB reads 'waitingForCleaning' channel and cleans up a test DB with the received index.
+// workerCleanUpTask reads 'waitingForCleaning' channel and cleans up a test DB with the received index.
 // When the DB is recreated according to a template, its index goes to the 'ready' channel.
-func (pool *dbHashPool) workerCleanUpReturnedDB() {
+func (pool *HashPool) workerCleanUpTask() {
 
 	for id := range pool.waitingForCleaning {
 		if id == stopWorkerMessage {
 			break
 		}
 
-		// fmt.Printf("workerCleanUpReturnedDB %d\n", id)
+		fmt.Printf("workerCleanUpReturnedDB %d\n", id)
 
 		ctx, task := trace.NewTask(context.Background(), "worker_cleanup_task")
 
@@ -524,17 +309,17 @@ func (pool *dbHashPool) workerCleanUpReturnedDB() {
 		reg := trace.StartRegion(ctx, "worker_cleanup")
 		if err := pool.recreateDB(ctx, &testDB); err != nil {
 			// TODO anna: error handling
-			// fmt.Printf("workerCleanUpReturnedDB: failed to clean up DB ID='%v': %v\n", id, err)
+			fmt.Printf("workerCleanUpReturnedDB: failed to clean up DB ID='%v': %v\n", id, err)
 			task.End()
 
 			// LEGACY HANDLING: we guarantee FIFO, we must keeping trying to clean up **exactly this** test database!
-			if !pool.forceDBReturn && errors.Is(err, ErrTestDBInUse) {
+			if !pool.EnableDBRecreate && errors.Is(err, ErrTestDBInUse) {
 
-				// fmt.Printf("workerCleanUpReturnedDB: scheduling retry cleanup for ID='%v'...\n", id)
+				fmt.Printf("workerCleanUpReturnedDB: scheduling retry cleanup for ID='%v'...\n", id)
 
 				go func(id int) {
 					time.Sleep(250 * time.Millisecond)
-					// fmt.Printf("integworkerCleanUpReturnedDBresql: push DB ID='%v' into retry.", id)
+					fmt.Printf("integworkerCleanUpReturnedDBresql: push DB ID='%v' into retry.", id)
 					pool.waitingForCleaning <- id
 				}(id)
 			}
@@ -558,9 +343,9 @@ func (pool *dbHashPool) workerCleanUpReturnedDB() {
 	}
 }
 
-func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix string) (db.TestDatabase, error) {
+func (pool *HashPool) extend(ctx context.Context, state dbState) (db.TestDatabase, error) {
 	// !
-	// dbHashPool locked
+	// HashPool locked
 	reg := trace.StartRegion(ctx, "extend_wait_for_lock_hash_pool")
 	pool.Lock()
 	defer pool.Unlock()
@@ -585,7 +370,7 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 		},
 	}
 	// set DB name
-	newTestDB.Database.Config.Database = makeDBName(testDBPrefix, pool.templateDB.TemplateHash, index)
+	newTestDB.Database.Config.Database = makeDBName(pool.TestDBNamePrefix, pool.templateDB.TemplateHash, index)
 
 	if err := pool.recreateDB(ctx, &newTestDB); err != nil {
 		return db.TestDatabase{}, err
@@ -595,17 +380,17 @@ func (pool *dbHashPool) extend(ctx context.Context, state dbState, testDBPrefix 
 	pool.dbs = append(pool.dbs, newTestDB)
 
 	return newTestDB.TestDatabase, nil
-	// dbHashPool unlocked
+	// HashPool unlocked
 	// !
 }
 
 // Select a longest issued DB from the dirty channel and push it to the waitingForCleaning channel.
 // Wait until there is a dirty DB...
-func (pool *dbHashPool) pushNotReturnedDirtyToCleaning() {
+func (pool *HashPool) pushNotReturnedDirtyToCleaning() {
 
 	select {
 	case id := <-pool.dirty:
-		// fmt.Printf("pushNotReturnedDirtyToCleaning %d\n", id)
+		fmt.Printf("pushNotReturnedDirtyToCleaning %d\n", id)
 		pool.Lock()
 		defer pool.Unlock()
 		testDB := pool.dbs[id]
@@ -617,17 +402,17 @@ func (pool *dbHashPool) pushNotReturnedDirtyToCleaning() {
 	}
 }
 
-func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error {
+func (pool *HashPool) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc) error {
 
 	// stop the worker
 	// we don't close here because if the remove operation fails, we want to be able to repeat it
-	for i := 0; i < pool.numOfWorkers; i++ {
+	for i := 0; i < pool.NumOfWorkers; i++ {
 		pool.waitingForCleaning <- stopWorkerMessage
 	}
 	pool.wg.Wait()
 
 	// !
-	// dbHashPool locked
+	// HashPool locked
 	pool.Lock()
 	defer pool.Unlock()
 
@@ -639,7 +424,7 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	for id := len(pool.dbs) - 1; id >= 0; id-- {
 		testDB := pool.dbs[id].TestDatabase
 
-		if err := removeFunc(testDB); err != nil {
+		if err := removeFunc(ctx, testDB); err != nil {
 			return err
 		}
 
@@ -653,19 +438,6 @@ func (pool *dbHashPool) removeAll(removeFunc func(db.TestDatabase) error) error 
 	close(pool.waitingForCleaning)
 
 	return nil
-	// dbHashPool unlocked
+	// HashPool unlocked
 	// !
-}
-
-// MakeDBName makes a test DB name with the configured prefix, template hash and ID of the DB.
-func (p *DBPool) MakeDBName(hash string, id int) string {
-	p.mutex.RLock()
-	p.mutex.RUnlock()
-
-	return makeDBName(p.PoolConfig.TestDBNamePrefix, hash, id)
-}
-
-func makeDBName(testDBPrefix string, hash string, id int) string {
-	// db name has an ID in suffix
-	return fmt.Sprintf("%s%s_%03d", testDBPrefix, hash, id)
 }
