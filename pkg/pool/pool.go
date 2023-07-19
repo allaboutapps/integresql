@@ -149,11 +149,8 @@ func (pool *HashPool) ExtendPool(ctx context.Context, templateDB db.Database) (d
 		return db.TestDatabase{}, err
 	}
 
-	select {
-	case pool.dirty <- testDB.ID:
-		// sent to dirty without blocking
-	default:
-		// channel is full
+	if !pool.EnableDBRecreate {
+		pool.dirty <- testDB.ID
 	}
 
 	return testDB, nil
@@ -368,12 +365,10 @@ func (pool *HashPool) recreateDirtyDB(ctx context.Context, shouldKeepDirty bool)
 
 		if err := pool.recreateDB(ctx, &testDB); err != nil {
 			// this database remains 'dirty'
-			select {
-			case pool.dirty <- index:
-				// sent to dirty without blocking
-			default:
-				// channel is full
+			if !pool.EnableDBRecreate {
+				pool.dirty <- testDB.ID
 			}
+
 			continue
 		}
 
@@ -392,11 +387,8 @@ func (pool *HashPool) recreateDirtyDB(ctx context.Context, shouldKeepDirty bool)
 		testDB.state = dbStateDirty
 		pool.dbs[index] = testDB
 
-		select {
-		case pool.dirty <- index:
-			// sent to dirty without blocking
-		default:
-			// channel is full
+		if !pool.EnableDBRecreate {
+			pool.dirty <- testDB.ID
 		}
 
 		return testDB.TestDatabase, nil
