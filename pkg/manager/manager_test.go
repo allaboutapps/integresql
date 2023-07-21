@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestManagerConnect(t *testing.T) {
@@ -395,49 +396,30 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrentlyLegacy(t *testing.
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
 
-	testCh := make(chan error, 1)
-	go func() {
+	testCh := make(chan string, 2)
+
+	g := errgroup.Group{}
+	g.Go(func() error {
 		_, err := m.GetTestDatabase(ctx, hash)
-		testCh <- err
-	}()
+		testCh <- "GET"
+		assert.NoError(t, err)
+		return nil
+	})
 
 	populateTemplateDB(t, template)
 
-	finalizeCh := make(chan error, 1)
-	go func() {
+	g.Go(func() error {
 		time.Sleep(500 * time.Millisecond)
 
-		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
-			finalizeCh <- err
-		}
+		_, err := m.FinalizeTemplateDatabase(ctx, hash)
+		testCh <- "FINALIZE"
+		assert.NoError(t, err)
+		return nil
+	})
 
-		finalizeCh <- nil
-	}()
-
-	testDone := false
-	finalizeDone := false
-	for {
-		select {
-		case err := <-testCh:
-			if err != nil {
-				t.Fatalf("failed to get test database: %v", err)
-			}
-
-			testDone = true
-		case err := <-finalizeCh:
-			if err != nil {
-				t.Fatalf("failed to finalize template database: %v", err)
-			}
-
-			finalizeDone = true
-		}
-
-		if testDone && finalizeDone {
-			break
-		} else if testDone && !finalizeDone {
-			t.Fatal("getting test database completed before finalizing template database")
-		}
-	}
+	g.Wait()
+	first := <-testCh
+	assert.Equal(t, "FINALIZE", first)
 }
 
 func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {

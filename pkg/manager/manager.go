@@ -47,36 +47,34 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.TestDatabasePrefix)
 	}
 
-	finalConfig := config
-
-	if len(finalConfig.TestDatabaseOwner) == 0 {
-		finalConfig.TestDatabaseOwner = finalConfig.ManagerDatabaseConfig.Username
+	if len(config.TestDatabaseOwner) == 0 {
+		config.TestDatabaseOwner = config.ManagerDatabaseConfig.Username
 	}
 
-	if len(finalConfig.TestDatabaseOwnerPassword) == 0 {
-		finalConfig.TestDatabaseOwnerPassword = finalConfig.ManagerDatabaseConfig.Password
+	if len(config.TestDatabaseOwnerPassword) == 0 {
+		config.TestDatabaseOwnerPassword = config.ManagerDatabaseConfig.Password
 	}
 
 	// Legacy handling does not support TestDatabaseInitialPoolSize=0
-	if !finalConfig.TestDatabaseEnableRecreate && finalConfig.TestDatabaseInitialPoolSize == 0 {
-		finalConfig.TestDatabaseInitialPoolSize = 1
+	if !config.TestDatabaseEnableRecreate && config.TestDatabaseInitialPoolSize == 0 {
+		config.TestDatabaseInitialPoolSize = 1
 	}
 
-	if finalConfig.TestDatabaseInitialPoolSize > finalConfig.TestDatabaseMaxPoolSize && finalConfig.TestDatabaseMaxPoolSize > 0 {
-		finalConfig.TestDatabaseInitialPoolSize = finalConfig.TestDatabaseMaxPoolSize
+	if config.TestDatabaseInitialPoolSize > config.TestDatabaseMaxPoolSize && config.TestDatabaseMaxPoolSize > 0 {
+		config.TestDatabaseInitialPoolSize = config.TestDatabaseMaxPoolSize
 	}
 
 	m := &Manager{
-		config:    finalConfig,
+		config:    config,
 		db:        nil,
 		wg:        sync.WaitGroup{},
 		templates: templates.NewCollection(),
 		pool: pool.NewPoolCollection(
 			pool.PoolConfig{
-				MaxPoolSize:      finalConfig.TestDatabaseMaxPoolSize,
-				InitialPoolSize:  finalConfig.TestDatabaseInitialPoolSize,
+				MaxPoolSize:      config.TestDatabaseMaxPoolSize,
+				InitialPoolSize:  config.TestDatabaseInitialPoolSize,
 				TestDBNamePrefix: testDBPrefix,
-				NumOfWorkers:     finalConfig.NumOfCleaningWorkers,
+				NumOfWorkers:     config.NumOfCleaningWorkers,
 				EnableDBRecreate: config.TestDatabaseEnableRecreate,
 			},
 		),

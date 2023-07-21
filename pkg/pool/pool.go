@@ -101,16 +101,14 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 
 	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
+	defer pool.Unlock()
+	reg.End()
 
 	// LEGACY HANDLING: we try to ensure that InitialPoolSize count is staying ready
 	// thus, we try to move the oldest dirty dbs into cleaning
 	if !pool.EnableDBRecreate && len(pool.dbs) >= pool.PoolConfig.MaxPoolSize {
 		go pool.pushNotReturnedDirtyToCleaning()
 	}
-
-	defer pool.Unlock()
-
-	reg.End()
 
 	// sanity check, should never happen
 	if index < 0 || index >= len(pool.dbs) {
@@ -141,7 +139,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	// LEGACY HANDLING: Always try to extend in the BG until we reach the max pool limit...
 	if !pool.EnableDBRecreate && len(pool.dbs) < pool.PoolConfig.MaxPoolSize {
 
-		go func(pool *HashPool, testDBNamePrefix string) {
+		go func(pool *HashPool) {
 			// fmt.Printf("pool#%s: bg extend...\n", hash)
 			newTestDB, err := pool.extend(context.Background(), dbStateReady)
 			if err != nil {
@@ -151,7 +149,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 
 			// fmt.Printf("pool#%s: extended ID=%v\n", hash, newTestDB.ID)
 			pool.ready <- newTestDB.ID
-		}(pool, pool.TestDBNamePrefix)
+		}(pool)
 	}
 
 	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
