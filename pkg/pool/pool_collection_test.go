@@ -9,6 +9,7 @@ import (
 	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPoolAddGet(t *testing.T) {
@@ -37,6 +38,7 @@ func TestPoolAddGet(t *testing.T) {
 		return nil
 	}
 	p.InitHashPool(ctx, templateDB, initFunc, true /*enableDBRecreate*/)
+	t.Cleanup(func() { p.Stop() })
 
 	// get from empty
 	_, err := p.GetTestDatabase(ctx, hash1, 0)
@@ -45,7 +47,7 @@ func TestPoolAddGet(t *testing.T) {
 	// add a new one
 	assert.NoError(t, p.AddTestDatabase(ctx, templateDB))
 	// get it
-	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
+	testDB, err := p.GetTestDatabase(ctx, hash1, 100*time.Millisecond)
 	assert.NoError(t, err)
 	assert.Equal(t, "prefix_h1_000", testDB.Database.Config.Database)
 	assert.Equal(t, "ich", testDB.Database.Config.Username)
@@ -70,8 +72,6 @@ func TestPoolAddGet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, hash2, testDB2.TemplateHash)
 	assert.NotEqual(t, testDB1.ID, testDB2.ID)
-
-	p.Stop()
 }
 
 func TestPoolAddGetConcurrent(t *testing.T) {
@@ -91,37 +91,24 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 		return nil
 	}
 
+	maxPoolSize := 15
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      6,
+		MaxPoolSize:      maxPoolSize,
+		InitialPoolSize:  maxPoolSize,
 		NumOfWorkers:     4,
 		TestDBNamePrefix: "",
 		EnableDBRecreate: true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	t.Cleanup(func() { p.Stop() })
 
 	var wg sync.WaitGroup
-	sleepDuration := 100 * time.Millisecond
+	sleepDuration := 10 * time.Millisecond
 
 	// initialize hash pool
+	// initial test databases will be added automatically
 	p.InitHashPool(ctx, templateDB1, initFunc, true /*enableDBRecreate*/)
 	p.InitHashPool(ctx, templateDB2, initFunc, true /*enableDBRecreate*/)
-
-	// add DB in one goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		templateDB1 := templateDB1
-		templateDB2 := templateDB2
-		sleepDuration := sleepDuration
-
-		// add DBs sequentially
-		for i := 0; i < cfg.MaxPoolSize; i++ {
-			assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
-			assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
-			time.Sleep(sleepDuration)
-		}
-	}()
 
 	// try to get them from another goroutines in parallel
 	getDB := func(hash string) {
@@ -142,7 +129,7 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 	}
 
 	wg.Wait()
-	p.Stop()
+
 }
 
 func TestPoolAddGetReturnConcurrent(t *testing.T) {
@@ -158,27 +145,31 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 		TemplateHash: hash2,
 	}
 	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		t.Log("(re)create ", testDB.Database)
 		return nil
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      6,
+		MaxPoolSize:      40,
 		NumOfWorkers:     4,
 		TestDBNamePrefix: "",
 		EnableDBRecreate: true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	t.Cleanup(func() { p.Stop() })
+
 	p.InitHashPool(ctx, templateDB1, initFunc, true /*enableDBRecreate*/)
 	p.InitHashPool(ctx, templateDB2, initFunc, true /*enableDBRecreate*/)
 
 	var wg sync.WaitGroup
 
 	// add DBs sequentially
-	for i := 0; i < cfg.MaxPoolSize/2; i++ {
+	for i := 0; i < cfg.MaxPoolSize/4; i++ {
 		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
 		assert.NoError(t, p.AddTestDatabase(ctx, templateDB2))
 	}
+
+	// stop the workers to prevent auto cleaning in background
+	p.Stop()
 
 	// try to get them from another goroutines in parallel
 	getAndReturnDB := func(hash string) {
@@ -191,14 +182,13 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 		assert.NoError(t, p.ReturnTestDatabase(ctx, hash, db.ID))
 	}
 
-	for i := 0; i < cfg.MaxPoolSize*3; i++ {
+	for i := 0; i < cfg.MaxPoolSize; i++ {
 		wg.Add(2)
 		go getAndReturnDB(hash1)
 		go getAndReturnDB(hash2)
 	}
 
 	wg.Wait()
-	p.Stop()
 }
 
 func TestPoolRemoveAll(t *testing.T) {
@@ -229,6 +219,8 @@ func TestPoolRemoveAll(t *testing.T) {
 		EnableDBRecreate: true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	t.Cleanup(func() { p.Stop() })
+
 	p.InitHashPool(ctx, templateDB1, initFunc, true /*enableDBRecreate*/)
 	p.InitHashPool(ctx, templateDB2, initFunc, true /*enableDBRecreate*/)
 
@@ -253,80 +245,9 @@ func TestPoolRemoveAll(t *testing.T) {
 	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, testDB.ID)
-
-	p.Stop()
 }
 
-func TestPoolInit(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	hash1 := "h1"
-	templateDB1 := db.Database{
-		TemplateHash: hash1,
-	}
-
-	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		t.Log("(re)create ", testDB.Database)
-		return nil
-	}
-
-	cfg := pool.PoolConfig{
-		MaxPoolSize:      100,
-		NumOfWorkers:     150,
-		TestDBNamePrefix: "",
-		EnableDBRecreate: true,
-	}
-	p := pool.NewPoolCollection(cfg)
-	p.InitHashPool(ctx, templateDB1, initFunc, true /*enableDBRecreate*/)
-
-	// we will test 2 ways of adding new DBs
-	for i := 0; i < cfg.MaxPoolSize/2; i++ {
-		// add and get freshly added DB
-		assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
-		_, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
-		assert.NoError(t, err)
-
-		// extend pool (= add and get)
-		_, err = p.ExtendPool(ctx, templateDB1)
-		assert.NoError(t, err)
-	}
-
-	// there should be no more free DBs
-	_, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 10*time.Millisecond)
-	assert.ErrorIs(t, err, pool.ErrTimeout)
-
-	var wg sync.WaitGroup
-	// now return them all
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		maxPoolSize := cfg.MaxPoolSize
-		templateHash := templateDB1.TemplateHash
-		for i := 0; i < maxPoolSize; i++ {
-			assert.NoError(t, p.ReturnTestDatabase(ctx, templateHash, i))
-		}
-	}()
-
-	// and check that they can be get again
-	// = the workers cleaned them up
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		maxPoolSize := cfg.MaxPoolSize
-		templateHash := templateDB1.TemplateHash
-		for i := 0; i < maxPoolSize; i++ {
-			_, err := p.GetTestDatabase(ctx, templateHash, 10*time.Millisecond)
-			assert.NoError(t, err)
-		}
-	}()
-
-	wg.Wait()
-
-	p.Stop()
-}
-
-func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
+func TestPoolReuseDirty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -343,25 +264,22 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 		return nil
 	}
 
+	maxPoolSize := 40
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      40,
+		MaxPoolSize:      maxPoolSize,
+		InitialPoolSize:  maxPoolSize,
 		NumOfWorkers:     1,
 		TestDBNamePrefix: "test_",
 		EnableDBRecreate: false,
 	}
 	p := pool.NewPoolCollection(cfg)
+
 	p.InitHashPool(ctx, templateDB1, initFunc, false /*enableDBRecreate*/)
+	t.Cleanup(func() { p.Stop() })
 
-	for i := 0; i < cfg.MaxPoolSize; i++ {
-		// add and get freshly added DB
-		// LEGACY HANDLING not supported!
-		_, err := p.ExtendPool(ctx, templateDB1)
-		assert.Error(t, err)
-	}
-
-	forceExtend := func(seenIDMap *sync.Map) {
-		newTestDB1, err := p.ExtendPool(ctx, templateDB1)
-		assert.Error(t, err)
+	getDirty := func(seenIDMap *sync.Map) {
+		newTestDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 10*time.Millisecond)
+		assert.NoError(t, err)
 		seenIDMap.Store(newTestDB1.ID, true)
 	}
 
@@ -372,20 +290,17 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			forceExtend(&seenIDMap)
+			getDirty(&seenIDMap)
 		}()
 	}
 
 	wg.Wait()
 
-	// NOPE, not supported!
-	// for id := 0; id < cfg.MaxPoolSize; id++ {
-	// 	_, ok := seenIDMap.Load(id)
-	// 	// every index that %5 != 0 should show up at least once
-	// 	assert.True(t, ok, id)
-	// }
-
-	p.Stop()
+	for id := 0; id < cfg.MaxPoolSize; id++ {
+		_, ok := seenIDMap.Load(id)
+		// every index should show up at least once
+		assert.True(t, ok, id)
+	}
 }
 
 func TestPoolReturnTestDatabase(t *testing.T) {
@@ -411,73 +326,31 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      40,
+		MaxPoolSize:      10,
 		NumOfWorkers:     3,
 		EnableDBRecreate: true,
 	}
 	p := pool.NewPoolCollection(cfg)
+	t.Cleanup(func() { p.Stop() })
+
 	p.InitHashPool(ctx, templateDB1, initFunc, true /*enableDBRecreate*/)
+	// add just one test DB
+	require.NoError(t, p.AddTestDatabase(ctx, templateDB1))
 
-	for i := 0; i < cfg.MaxPoolSize; i++ {
-		testDB, err := p.ExtendPool(ctx, templateDB1)
-		assert.NoError(t, err)
-		// return - don't recreate, just bring back directly to the pool
-		assert.NoError(t, p.ReturnTestDatabase(ctx, hash1, testDB.ID))
-	}
-
-	for id := 0; id < cfg.MaxPoolSize; id++ {
-		recreatedTimes, ok := recreateTimesMap.Load(id)
-		assert.True(t, ok)
-		assert.Equal(t, 1, recreatedTimes) // just once to initialize it
-	}
-
+	// stop the workers to prevent auto cleaning in background
 	p.Stop()
-}
 
-func TestPoolRecreateTestDatabase(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
+	testDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
+	assert.NoError(t, err)
 
-	hash1 := "h1"
-	templateDB1 := db.Database{
-		TemplateHash: hash1,
-		Config: db.DatabaseConfig{
-			Database: "h1_template",
-		},
-	}
+	// assert that workers are stopped and no new DB showed up
+	_, err = p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
+	assert.ErrorIs(t, err, pool.ErrTimeout)
 
-	recreateTimesMap := sync.Map{}
-	initFunc := func(ctx context.Context, testDB db.TestDatabase, templateName string) error {
-		times, existing := recreateTimesMap.LoadOrStore(testDB.ID, 1)
-		if existing {
-			recreateTimesMap.Store(testDB.ID, times.(int)+1)
-		}
+	// return and get the same one
+	assert.NoError(t, p.ReturnTestDatabase(ctx, hash1, testDB1.ID))
+	testDB2, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
+	assert.NoError(t, err)
+	assert.Equal(t, testDB1.ID, testDB2.ID)
 
-		return nil
-	}
-
-	cfg := pool.PoolConfig{
-		MaxPoolSize:      40,
-		NumOfWorkers:     3,
-		EnableDBRecreate: true,
-	}
-	p := pool.NewPoolCollection(cfg)
-	p.InitHashPool(ctx, templateDB1, initFunc, true /*enableDBRecreate*/)
-
-	for i := 0; i < cfg.MaxPoolSize; i++ {
-		testDB, err := p.ExtendPool(ctx, templateDB1)
-		assert.NoError(t, err)
-		// recreate - add for cleaning
-		assert.NoError(t, p.RecreateTestDatabase(ctx, hash1, testDB.ID))
-	}
-
-	time.Sleep(100 * time.Millisecond) // wait a tiny bit to have all DB cleaned up
-
-	for id := 0; id < cfg.MaxPoolSize; id++ {
-		recreatedTimes, ok := recreateTimesMap.Load(id)
-		assert.True(t, ok)
-		assert.Equal(t, 2, recreatedTimes) // first time to initialize it, second to clean it
-	}
-
-	p.Stop()
 }

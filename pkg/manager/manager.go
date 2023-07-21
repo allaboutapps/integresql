@@ -307,7 +307,6 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB, template.RecreateEnabled)
 
 	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
-	m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
 
 	return db.TemplateDatabase{Database: template.Database}, nil
 }
@@ -337,24 +336,13 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 	ctx, task = trace.NewTask(ctx, "get_with_timeout")
 	testDB, err := m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseGetTimeout)
 	task.End()
-
-	if errors.Is(err, pool.ErrTimeout) {
-		// on timeout we can try to extend the pool
-		ctx, task := trace.NewTask(ctx, "extend_pool_on_demand")
-		testDB, err = m.pool.ExtendPool(ctx, template.Database)
-		task.End()
-
-	} else if errors.Is(err, pool.ErrUnknownHash) {
+	if errors.Is(err, pool.ErrUnknownHash) {
 		// Template exists, but the pool is not there -
 		// it must have been removed.
 		// It needs to be reinitialized.
 		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB, template.IsRecreateEnabled(ctx))
 
-		// pool initalized, create one test db
-		testDB, err = m.pool.ExtendPool(ctx, template.Database)
-		// // and add new test DBs in the background
-		// m.addInitialTestDatabasesInBackground(template, m.config.TestDatabaseInitialPoolSize)
-
+		testDB, err = m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseGetTimeout)
 	}
 
 	if err != nil {
@@ -579,36 +567,6 @@ func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owne
 	}
 
 	return m.createDatabase(ctx, dbName, owner, template)
-}
-
-// createTestDatabaseFromTemplate adds a new test database in the pool (increasing its size) basing on the given template.
-// It waits until the template is finalized.
-func (m *Manager) createTestDatabaseFromTemplate(ctx context.Context, template *templates.Template) error {
-	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) != templates.TemplateStateFinalized {
-		// if the state changed in the meantime, return
-		return ErrInvalidTemplateState
-	}
-
-	return m.pool.AddTestDatabase(ctx, template.Database)
-}
-
-// Adds new test databases for a template, intended to be run asynchronously from other operations in a separate goroutine, using the manager's WaitGroup to synchronize for shutdown.
-func (m *Manager) addInitialTestDatabasesInBackground(template *templates.Template, count int) {
-
-	ctx := m.connectionCtx
-
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-
-		for i := 0; i < count; i++ {
-			if err := m.createTestDatabaseFromTemplate(ctx, template); err != nil {
-				// TODO anna: error handling
-				fmt.Printf("integresql: failed to initialize DB from template: %v\n", err)
-			}
-		}
-	}()
-
 }
 
 func (m *Manager) makeTemplateDatabaseName(hash string) string {

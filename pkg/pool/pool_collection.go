@@ -14,11 +14,12 @@ import (
 var ErrUnknownHash = errors.New("no database pool exists for this hash")
 
 type PoolConfig struct {
-	MaxPoolSize      int
-	InitialPoolSize  int
-	TestDBNamePrefix string
-	NumOfWorkers     int  // Number of cleaning workers (each hash pool runs this number of workers).
-	EnableDBRecreate bool // Enables recreating test databases with the cleanup workers. If this flag is on, it's no longer possible to reuse dirty (currently in use, 'locked') databases when MAX pool size is reached.
+	MaxPoolSize        int
+	InitialPoolSize    int
+	TestDBNamePrefix   string
+	NumOfWorkers       int  // Number of cleaning workers (each hash pool runs this number of workers).
+	EnableDBRecreate   bool // Enables recreating test databases with the cleanup workers. If this flag is on, it's no longer possible to reuse dirty (currently in use, 'locked') databases when MAX pool size is reached.
+	MaxConcurrentTasks int
 }
 
 type PoolCollection struct {
@@ -65,6 +66,7 @@ func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Databas
 
 	// Create a new HashPool. If recreating is enabled, workers start automatically.
 	pool := NewHashPool(cfg, templateDB, initDBFunc)
+	pool.Start()
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
@@ -107,19 +109,6 @@ func (p *PoolCollection) AddTestDatabase(ctx context.Context, templateDB db.Data
 	}
 
 	return pool.AddTestDatabase(ctx, templateDB)
-}
-
-// ExtendPool adds a new test DB to the pool, creates it according to the template, and returns it right away to the caller.
-// The new test DB is marked as 'IsUse' and won't be picked up with GetTestDatabase, until it's returned to the pool.
-func (p *PoolCollection) ExtendPool(ctx context.Context, templateDB db.Database) (db.TestDatabase, error) {
-	hash := templateDB.TemplateHash
-
-	pool, err := p.getPool(ctx, hash)
-	if err != nil {
-		return db.TestDatabase{}, err
-	}
-
-	return pool.ExtendPool(ctx, templateDB)
 }
 
 // RecreateTestDatabase recreates the given test DB and returns it back to the pool.
