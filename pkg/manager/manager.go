@@ -23,7 +23,6 @@ var (
 	ErrTestNotFound               = errors.New("test database not found")
 	ErrTemplateDiscarded          = errors.New("template is discarded, can't be used")
 	ErrInvalidTemplateState       = errors.New("unexpected template state")
-	ErrTestDBInUse                = errors.New("test database is in use, close the connection before dropping")
 )
 
 type Manager struct {
@@ -48,32 +47,40 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.TestDatabasePrefix)
 	}
 
+	finalConfig := config
+
+	if len(finalConfig.TestDatabaseOwner) == 0 {
+		finalConfig.TestDatabaseOwner = finalConfig.ManagerDatabaseConfig.Username
+	}
+
+	if len(finalConfig.TestDatabaseOwnerPassword) == 0 {
+		finalConfig.TestDatabaseOwnerPassword = finalConfig.ManagerDatabaseConfig.Password
+	}
+
+	// Legacy handling does not support TestDatabaseInitialPoolSize=0
+	if !finalConfig.TestDatabaseEnableRecreate && finalConfig.TestDatabaseInitialPoolSize == 0 {
+		finalConfig.TestDatabaseInitialPoolSize = 1
+	}
+
+	if finalConfig.TestDatabaseInitialPoolSize > finalConfig.TestDatabaseMaxPoolSize && finalConfig.TestDatabaseMaxPoolSize > 0 {
+		finalConfig.TestDatabaseInitialPoolSize = finalConfig.TestDatabaseMaxPoolSize
+	}
+
 	m := &Manager{
-		config:    config,
+		config:    finalConfig,
 		db:        nil,
 		wg:        sync.WaitGroup{},
 		templates: templates.NewCollection(),
 		pool: pool.NewPoolCollection(
 			pool.PoolConfig{
-				MaxPoolSize:      config.TestDatabaseMaxPoolSize,
+				MaxPoolSize:      finalConfig.TestDatabaseMaxPoolSize,
+				InitialPoolSize:  finalConfig.TestDatabaseInitialPoolSize,
 				TestDBNamePrefix: testDBPrefix,
-				NumOfWorkers:     config.NumOfCleaningWorkers,
+				NumOfWorkers:     finalConfig.NumOfCleaningWorkers,
 				EnableDBRecreate: config.TestDatabaseEnableRecreate,
 			},
 		),
 		connectionCtx: context.TODO(),
-	}
-
-	if len(m.config.TestDatabaseOwner) == 0 {
-		m.config.TestDatabaseOwner = m.config.ManagerDatabaseConfig.Username
-	}
-
-	if len(m.config.TestDatabaseOwnerPassword) == 0 {
-		m.config.TestDatabaseOwnerPassword = m.config.ManagerDatabaseConfig.Password
-	}
-
-	if m.config.TestDatabaseInitialPoolSize > m.config.TestDatabaseMaxPoolSize && m.config.TestDatabaseMaxPoolSize > 0 {
-		m.config.TestDatabaseInitialPoolSize = m.config.TestDatabaseMaxPoolSize
 	}
 
 	return m, m.config
@@ -356,17 +363,6 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		return db.TestDatabase{}, err
 	}
 
-	if !template.IsRecreateEnabled(ctx) {
-		// before returning create a new test database in background
-		m.wg.Add(1)
-		go func(ctx context.Context, templ *templates.Template) {
-			defer m.wg.Done()
-			if err := m.createTestDatabaseFromTemplate(ctx, templ); err != nil {
-				fmt.Printf("integresql: failed to create a new DB in background: %v\n", err)
-			}
-		}(m.connectionCtx, template)
-	}
-
 	return testDB, nil
 }
 
@@ -493,6 +489,9 @@ func (m *Manager) dropDatabaseWithID(ctx context.Context, hash string, id int) e
 
 func (m *Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool, error) {
 	var exists bool
+
+	// fmt.Printf("SELECT 1 AS exists FROM pg_database WHERE datname = %s\n", dbName)
+
 	if err := m.db.QueryRowContext(ctx, "SELECT 1 AS exists FROM pg_database WHERE datname = $1", dbName).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
@@ -504,9 +503,30 @@ func (m *Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool,
 	return exists, nil
 }
 
+func (m *Manager) checkDatabaseConnected(ctx context.Context, dbName string) (bool, error) {
+
+	var countConnected int
+
+	if err := m.db.QueryRowContext(ctx, "SELECT count(pid) FROM pg_stat_activity WHERE datname = $1", dbName).Scan(&countConnected); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	if countConnected > 0 {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func (m *Manager) createDatabase(ctx context.Context, dbName string, owner string, template string) error {
 
 	defer trace.StartRegion(ctx, "create_db").End()
+
+	// fmt.Printf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s\n", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))); err != nil {
 		return err
@@ -516,6 +536,17 @@ func (m *Manager) createDatabase(ctx context.Context, dbName string, owner strin
 }
 
 func (m *Manager) recreateTestPoolDB(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+
+	connected, err := m.checkDatabaseConnected(ctx, testDB.Database.Config.Database)
+
+	if err != nil {
+		return err
+	}
+
+	if connected {
+		return pool.ErrTestDBInUse
+	}
+
 	return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
 }
 
@@ -527,9 +558,11 @@ func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 
 	defer trace.StartRegion(ctx, "drop_db").End()
 
+	// fmt.Printf("DROP DATABASE IF EXISTS %s\n", pq.QuoteIdentifier(dbName))
+
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		if strings.Contains(err.Error(), "is being accessed by other users") {
-			return ErrTestDBInUse
+			return pool.ErrTestDBInUse
 		}
 
 		return err

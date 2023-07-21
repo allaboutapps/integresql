@@ -15,6 +15,7 @@ var ErrUnknownHash = errors.New("no database pool exists for this hash")
 
 type PoolConfig struct {
 	MaxPoolSize      int
+	InitialPoolSize  int
 	TestDBNamePrefix string
 	NumOfWorkers     int  // Number of cleaning workers (each hash pool runs this number of workers).
 	EnableDBRecreate bool // Enables recreating test databases with the cleanup workers. If this flag is on, it's no longer possible to reuse dirty (currently in use, 'locked') databases when MAX pool size is reached.

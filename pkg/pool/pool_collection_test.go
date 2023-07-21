@@ -354,13 +354,14 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 
 	for i := 0; i < cfg.MaxPoolSize; i++ {
 		// add and get freshly added DB
+		// LEGACY HANDLING not supported!
 		_, err := p.ExtendPool(ctx, templateDB1)
-		assert.NoError(t, err)
+		assert.Error(t, err)
 	}
 
 	forceExtend := func(seenIDMap *sync.Map) {
 		newTestDB1, err := p.ExtendPool(ctx, templateDB1)
-		assert.NoError(t, err)
+		assert.Error(t, err)
 		seenIDMap.Store(newTestDB1.ID, true)
 	}
 
@@ -377,11 +378,12 @@ func TestPoolExtendRecyclingInUseTestDB(t *testing.T) {
 
 	wg.Wait()
 
-	for id := 0; id < cfg.MaxPoolSize; id++ {
-		_, ok := seenIDMap.Load(id)
-		// every index that %5 != 0 should show up at least once
-		assert.True(t, ok, id)
-	}
+	// NOPE, not supported!
+	// for id := 0; id < cfg.MaxPoolSize; id++ {
+	// 	_, ok := seenIDMap.Load(id)
+	// 	// every index that %5 != 0 should show up at least once
+	// 	assert.True(t, ok, id)
+	// }
 
 	p.Stop()
 }

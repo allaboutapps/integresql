@@ -142,8 +142,8 @@ func postRecreateTestDatabase(s *api.Server) echo.HandlerFunc {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
 			case manager.ErrTestNotFound:
 				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
-			case manager.ErrTestDBInUse:
-				return echo.NewHTTPError(http.StatusLocked, manager.ErrTestDBInUse.Error())
+			case pool.ErrTestDBInUse:
+				return echo.NewHTTPError(http.StatusLocked, pool.ErrTestDBInUse.Error())
 			default:
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
@@ -172,8 +172,8 @@ func postUnlockTestDatabase(s *api.Server) echo.HandlerFunc {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
 			case manager.ErrTestNotFound:
 				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
-			case manager.ErrTestDBInUse:
-				return echo.NewHTTPError(http.StatusLocked, manager.ErrTestDBInUse.Error())
+			case pool.ErrTestDBInUse:
+				return echo.NewHTTPError(http.StatusLocked, pool.ErrTestDBInUse.Error())
 			default:
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}

@@ -3,6 +3,7 @@ package templates_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 			timeout := 1 * time.Second
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateFinalized {
-				errsChan <- errors.New("expected ready, but is not")
+				errsChan <- errors.New(fmt.Sprintf("expected state %v (finalized), but is %v", templates.TemplateStateFinalized, state))
 			}
 		}()
 	}
@@ -60,7 +61,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 			timeout := 3 * time.Millisecond
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateInit {
-				errsChan <- errors.New("expected state init, but is not")
+				errsChan <- errors.New(fmt.Sprintf("expected state %v (init), but is %v", templates.TemplateStateInit, state))
 			}
 		}()
 	}

@@ -305,13 +305,13 @@ func TestManagerGetTestDatabase(t *testing.T) {
 	verifyTestDB(t, test)
 }
 
-func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
+func TestManagerGetTestDatabaseExtendPoolOnDemandLegacy(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
 	// no db created initally in the background
-	cfg.TestDatabaseInitialPoolSize = 0
+	cfg.TestDatabaseInitialPoolSize = 0 // LEGACY HANDLING: this will be autotransformed to 1 during init
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -339,10 +339,112 @@ func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
 	assert.Equal(t, 0, testDB.ID)
 }
 
+func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
+	// no db created initally in the background
+	cfg.TestDatabaseInitialPoolSize = 0
+	cfg.TestDatabaseEnableRecreate = true
+	m, _ := testManagerWithConfig(cfg)
+
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash, true)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
+
+	// get should succeed because a test DB is created on demand
+	testDB, err := m.GetTestDatabase(ctx, hash)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, testDB.ID)
+}
+
+func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrentlyLegacy(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseEnableRecreate = false
+	cfg.TemplateFinalizeTimeout = 1 * time.Second
+	m, _ := testManagerWithConfig(cfg)
+
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash, false)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	testCh := make(chan error, 1)
+	go func() {
+		_, err := m.GetTestDatabase(ctx, hash)
+		testCh <- err
+	}()
+
+	populateTemplateDB(t, template)
+
+	finalizeCh := make(chan error, 1)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+
+		if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+			finalizeCh <- err
+		}
+
+		finalizeCh <- nil
+	}()
+
+	testDone := false
+	finalizeDone := false
+	for {
+		select {
+		case err := <-testCh:
+			if err != nil {
+				t.Fatalf("failed to get test database: %v", err)
+			}
+
+			testDone = true
+		case err := <-finalizeCh:
+			if err != nil {
+				t.Fatalf("failed to finalize template database: %v", err)
+			}
+
+			finalizeDone = true
+		}
+
+		if testDone && finalizeDone {
+			break
+		} else if testDone && !finalizeDone {
+			t.Fatal("getting test database completed before finalizing template database")
+		}
+	}
+}
+
 func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseEnableRecreate = true
 	cfg.TemplateFinalizeTimeout = 1 * time.Second
 	m, _ := testManagerWithConfig(cfg)
 

@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
@@ -16,7 +17,7 @@ type ManagerConfig struct {
 	TestDatabasePrefix          string
 	TestDatabaseOwner           string
 	TestDatabaseOwnerPassword   string
-	TestDatabaseInitialPoolSize int           // Initial number of read DBs prepared in background
+	TestDatabaseInitialPoolSize int           // Initial number of ready DBs prepared in background
 	TestDatabaseMaxPoolSize     int           // Maximal pool size that won't be exceeded
 	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
 	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database before extending the pool
@@ -54,13 +55,15 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabasePrefix: util.GetEnv("INTEGRESQL_TEST_DB_PREFIX", "test"),
 
 		// reuse the same user (PGUSER) and passwort (PGPASSWORT) for the test / template databases by default
-		TestDatabaseOwner:           util.GetEnv("INTEGRESQL_TEST_PGUSER", util.GetEnv("INTEGRESQL_PGUSER", util.GetEnv("PGUSER", "postgres"))),
-		TestDatabaseOwnerPassword:   util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
-		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
-		TestDatabaseMaxPoolSize:     util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
-		TemplateFinalizeTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 20000)),
-		TestDatabaseGetTimeout:      time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),
-		NumOfCleaningWorkers:        util.GetEnvAsInt("INTEGRESQL_NUM_OF_CLEANING_WORKERS", 3),
-		TestDatabaseEnableRecreate:  util.GetEnvAsBool("INTEGRESQL_TEST_DB_ENABLE_RECREATE", false),
+		TestDatabaseOwner:         util.GetEnv("INTEGRESQL_TEST_PGUSER", util.GetEnv("INTEGRESQL_PGUSER", util.GetEnv("PGUSER", "postgres"))),
+		TestDatabaseOwnerPassword: util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
+		// TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
+		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", runtime.NumCPU()),
+		// TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
+		TestDatabaseMaxPoolSize:    util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", runtime.NumCPU()*4),
+		TemplateFinalizeTimeout:    time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 60000)), // TODO eventually even bigger defaults?
+		TestDatabaseGetTimeout:     time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),         // only used when INTEGRESQL_TEST_DB_FORCE_RETURN=true
+		NumOfCleaningWorkers:       util.GetEnvAsInt("INTEGRESQL_NUM_OF_CLEANING_WORKERS", runtime.NumCPU()),
+		TestDatabaseEnableRecreate: util.GetEnvAsBool("INTEGRESQL_TEST_DB_ENABLE_RECREATE", false) || util.GetEnvAsBool("INTEGRESQL_TEST_DB_FORCE_RETURN", false),
 	}
 }
