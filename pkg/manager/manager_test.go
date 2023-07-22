@@ -107,7 +107,7 @@ func TestManagerInitializeTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestManagerInitializeTemplateDatabaseTimeout(t *testing.T) {
 	ctxt, cancel := context.WithTimeout(ctx, 10*time.Nanosecond)
 	defer cancel()
 
-	_, err := m.InitializeTemplateDatabase(ctxt, hash, true /* enableDBRecreate */)
+	_, err := m.InitializeTemplateDatabase(ctxt, hash)
 	if err != context.DeadlineExceeded {
 		t.Fatalf("received unexpected error, got %v, want %v", err, context.DeadlineExceeded)
 	}
@@ -205,7 +205,7 @@ func TestManagerFinalizeTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestManagerGetTestDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestManagerGetTestDatabaseExtendPoolOnDemandLegacy(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -347,7 +347,6 @@ func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
 	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
 	// no db created initally in the background
 	cfg.TestDatabaseInitialPoolSize = 0
-	cfg.TestDatabaseEnableRecreate = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -358,7 +357,7 @@ func TestManagerGetTestDatabaseExtendPoolOnDemand(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -379,7 +378,6 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrentlyLegacy(t *testing.
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseEnableRecreate = false
 	cfg.TemplateFinalizeTimeout = 1 * time.Second
 	m, _ := testManagerWithConfig(cfg)
 
@@ -391,7 +389,7 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrentlyLegacy(t *testing.
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, false)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -426,7 +424,6 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseEnableRecreate = true
 	cfg.TemplateFinalizeTimeout = 1 * time.Second
 	m, _ := testManagerWithConfig(cfg)
 
@@ -438,7 +435,7 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -500,7 +497,7 @@ func TestManagerGetTestDatabaseConcurrently(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -566,7 +563,7 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -634,7 +631,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -690,7 +687,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 		t.Fatalf("finalize template should not work: %v", err)
 	}
 
-	_, err = m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	_, err = m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("reinitialize after discard template database should work: %v", err)
 	}
@@ -707,7 +704,6 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseInitialPoolSize = 3
 	cfg.TestDatabaseMaxPoolSize = 3
-	cfg.TestDatabaseEnableRecreate = true
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
@@ -719,7 +715,7 @@ func TestManagerGetTestDatabaseReusingIDs(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -754,7 +750,6 @@ func TestManagerGetTestDatabaseExtendingPoolForceReturn(t *testing.T) {
 	cfg.TestDatabaseMaxPoolSize = 10
 	cfg.TestDatabaseGetTimeout = 10 * time.Nanosecond
 	// force DB return
-	cfg.TestDatabaseEnableRecreate = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -765,7 +760,7 @@ func TestManagerGetTestDatabaseExtendingPoolForceReturn(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -807,8 +802,6 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseInitialPoolSize = 5
 	cfg.TestDatabaseMaxPoolSize = 5
-	// enable reusing old not returned databases
-	cfg.TestDatabaseEnableRecreate = false
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -819,7 +812,7 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash /*enableDBRecreate */)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -872,14 +865,13 @@ func TestManagerGetTestDatabaseForUnknownTemplate(t *testing.T) {
 	}
 }
 
-func TestManagerReturnRecreateTestDatabase(t *testing.T) {
+func TestManagerReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseInitialPoolSize = 10
 	cfg.NumOfCleaningWorkers = 2
 	cfg.TestDatabaseMaxPoolSize = 10
-	cfg.TestDatabaseEnableRecreate = true
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 
 	tests := []struct {
@@ -887,17 +879,6 @@ func TestManagerReturnRecreateTestDatabase(t *testing.T) {
 		giveBackFunc func(m *manager.Manager, ctx context.Context, hash string, id int) error
 		resultCheck  func(row *sql.Row, id int)
 	}{
-		{
-			name: "Recreate",
-			giveBackFunc: func(m *manager.Manager, ctx context.Context, hash string, id int) error {
-				return m.RecreateTestDatabase(ctx, hash, id)
-			},
-			resultCheck: func(row *sql.Row, id int) {
-				assert.NoError(t, row.Err())
-				var name string
-				assert.ErrorIs(t, row.Scan(&name), sql.ErrNoRows, id)
-			},
-		},
 		{
 			name: "Return",
 			giveBackFunc: func(m *manager.Manager, ctx context.Context, hash string, id int) error {
@@ -926,7 +907,7 @@ func TestManagerReturnRecreateTestDatabase(t *testing.T) {
 
 			hash := "hashinghash"
 
-			template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+			template, err := m.InitializeTemplateDatabase(ctx, hash)
 			if err != nil {
 				t.Fatalf("failed to initialize template database: %v", err)
 			}
@@ -983,7 +964,6 @@ func TestManagerRecreateTestDatabaseRecreateDisabled(t *testing.T) {
 	cfg.TestDatabaseInitialPoolSize = 5
 	cfg.NumOfCleaningWorkers = 2
 	cfg.TestDatabaseMaxPoolSize = 10
-	cfg.TestDatabaseEnableRecreate = true
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 
 	m, _ := testManagerWithConfig(cfg)
@@ -996,7 +976,7 @@ func TestManagerRecreateTestDatabaseRecreateDisabled(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, false /*enableRecreate*/)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -1048,7 +1028,7 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -1096,7 +1076,7 @@ func TestManagerReturnUnknownTemplateDatabase(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -1126,7 +1106,7 @@ func TestManagerMultiFinalize(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, true /*enableDBRecreate */)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}
@@ -1174,7 +1154,6 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	// there are no db added in background
 	cfg.TestDatabaseInitialPoolSize = 0
-	cfg.TestDatabaseEnableRecreate = true
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -1185,7 +1164,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 
 	hash := "hashinghash"
 
-	template, err := m.InitializeTemplateDatabase(ctx, hash, cfg.TestDatabaseEnableRecreate)
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
 	if err != nil {
 		t.Fatalf("failed to initialize template database: %v", err)
 	}

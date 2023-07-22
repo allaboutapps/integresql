@@ -187,36 +187,32 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 	var semaphore = make(chan struct{}, pool.MaxConcurrentTasks)
 
 	for task := range taskChan {
-		switch task {
-		case workerTaskStop:
-			return
-		default:
-			handler, ok := handlers[task]
-			if !ok {
-				fmt.Printf("invalid task: %s", task)
-				continue
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case semaphore <- struct{}{}:
-			}
-
-			pool.wg.Add(1)
-			go func(task string) {
-
-				defer func() {
-					pool.wg.Done()
-					<-semaphore
-				}()
-
-				// fmt.Println("task", task)
-				if err := handler(ctx); err != nil {
-					// fmt.Println("task", task, "failed:", err.Error())
-				}
-			}(task)
+		handler, ok := handlers[task]
+		if !ok {
+			fmt.Printf("invalid task: %s", task)
+			continue
 		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case semaphore <- struct{}{}:
+		}
+
+		pool.wg.Add(1)
+		go func(task string) {
+
+			defer func() {
+				pool.wg.Done()
+				<-semaphore
+			}()
+
+			// fmt.Println("task", task)
+			if err := handler(ctx); err != nil {
+				// fmt.Println("task", task, "failed:", err.Error())
+			}
+		}(task)
+
 	}
 }
 
@@ -234,8 +230,8 @@ func (pool *HashPool) controlLoop() {
 
 	for task := range pool.tasksChan {
 		if task == workerTaskStop {
+			close(workerTasksChan)
 			cancel()
-			workerTasksChan <- task
 			return
 		}
 
@@ -438,7 +434,7 @@ func (pool *HashPool) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc) er
 
 	// close all only if removal of all succeeded
 	pool.dbs = nil
-	close(pool.dirty)
+	close(pool.tasksChan)
 
 	return nil
 	// HashPool unlocked

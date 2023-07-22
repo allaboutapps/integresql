@@ -55,8 +55,8 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		config.TestDatabaseOwnerPassword = config.ManagerDatabaseConfig.Password
 	}
 
-	// Legacy handling does not support TestDatabaseInitialPoolSize=0
-	if !config.TestDatabaseEnableRecreate && config.TestDatabaseInitialPoolSize == 0 {
+	// at least one test database needs to be present initially
+	if config.TestDatabaseInitialPoolSize == 0 {
 		config.TestDatabaseInitialPoolSize = 1
 	}
 
@@ -75,7 +75,6 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 				InitialPoolSize:  config.TestDatabaseInitialPoolSize,
 				TestDBNamePrefix: testDBPrefix,
 				NumOfWorkers:     config.NumOfCleaningWorkers,
-				EnableDBRecreate: config.TestDatabaseEnableRecreate,
 			},
 		),
 		connectionCtx: context.TODO(),
@@ -183,17 +182,12 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string, enableDBRecreate bool) (db.TemplateDatabase, error) {
+func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "initialize_template_db")
 	defer task.End()
 
 	if !m.Ready() {
 		return db.TemplateDatabase{}, ErrManagerNotReady
-	}
-
-	if !m.config.TestDatabaseEnableRecreate {
-		// only if the main config allows for DB recreate, it can be enabled
-		enableDBRecreate = false
 	}
 
 	dbName := m.makeTemplateDatabaseName(hash)
@@ -205,7 +199,6 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string, e
 			Password: m.config.ManagerDatabaseConfig.Password,
 			Database: dbName,
 		},
-		RecreateEnabled: enableDBRecreate,
 	}
 
 	added, unlock := m.templates.Push(ctx, hash, templateConfig)
@@ -304,7 +297,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 	}
 
 	// Init a pool with this hash
-	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB, template.RecreateEnabled)
+	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
 
 	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
 
@@ -312,7 +305,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 }
 
 // GetTestDatabase tries to get a ready test DB from an existing pool.
-// If no DB is ready after the preconfigured timeout, it tries to extend the pool and therefore create a new DB.
+// If no DB is ready after the preconfigured timeout, ErrTimeout is returned.
 func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "get_test_db")
 	defer task.End()
@@ -340,7 +333,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 		// Template exists, but the pool is not there -
 		// it must have been removed.
 		// It needs to be reinitialized.
-		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB, template.IsRecreateEnabled(ctx))
+		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
 
 		testDB, err = m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseGetTimeout)
 	}
@@ -375,48 +368,6 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 
 	// template is ready, we can return unchanged testDB to the pool
 	if err := m.pool.ReturnTestDatabase(ctx, hash, id); err != nil {
-		if !(errors.Is(err, pool.ErrInvalidIndex) ||
-			errors.Is(err, pool.ErrUnknownHash)) {
-			// other error is an internal error
-			return err
-		}
-
-		// db is not tracked in the pool
-		// try to drop it if exists
-		return m.dropDatabaseWithID(ctx, hash, id)
-	}
-
-	return nil
-}
-
-// RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
-func (m *Manager) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
-	ctx, task := trace.NewTask(ctx, "recreate_test_db")
-	defer task.End()
-
-	if !m.Ready() {
-		return ErrManagerNotReady
-	}
-
-	// check if the template exists and is finalized
-	template, found := m.templates.Get(ctx, hash)
-	if !found {
-		return m.dropDatabaseWithID(ctx, hash, id)
-	}
-
-	// don't allow to recreate if it's not enabled for this template
-	if !template.IsRecreateEnabled(ctx) {
-		return nil
-	}
-
-	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) !=
-		templates.TemplateStateFinalized {
-
-		return ErrInvalidTemplateState
-	}
-
-	// template is ready, we can returb the testDB to the pool and have it cleaned up
-	if err := m.pool.RecreateTestDatabase(ctx, hash, id); err != nil {
 		if !(errors.Is(err, pool.ErrInvalidIndex) ||
 			errors.Is(err, pool.ErrUnknownHash)) {
 			// other error is an internal error

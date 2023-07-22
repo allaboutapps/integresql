@@ -14,8 +14,7 @@ import (
 
 func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 	type requestPayload struct {
-		Hash             string `json:"hash"`
-		EnableDBRecreate bool   `json:"enableRecreate"`
+		Hash string `json:"hash"`
 	}
 
 	return func(c echo.Context) error {
@@ -32,7 +31,7 @@ func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer cancel()
 
-		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash, payload.EnableDBRecreate)
+		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash)
 		if err != nil {
 			switch err {
 			case manager.ErrManagerNotReady:
@@ -124,33 +123,6 @@ func getTestDatabase(s *api.Server) echo.HandlerFunc {
 
 func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 	return postUnlockTestDatabase(s)
-}
-
-func postRecreateTestDatabase(s *api.Server) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		hash := c.Param("hash")
-		id, err := strconv.Atoi(c.Param("id"))
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
-		}
-
-		if err := s.Manager.RecreateTestDatabase(c.Request().Context(), hash, id); err != nil {
-			switch err {
-			case manager.ErrManagerNotReady:
-				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateNotFound:
-				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			case manager.ErrTestNotFound:
-				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
-			case pool.ErrTestDBInUse:
-				return echo.NewHTTPError(http.StatusLocked, pool.ErrTestDBInUse.Error())
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-			}
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	}
 }
 
 func postUnlockTestDatabase(s *api.Server) echo.HandlerFunc {
