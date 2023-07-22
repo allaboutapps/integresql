@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"runtime/trace"
 	"strings"
-	"sync"
 
 	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/allaboutapps/integresql/pkg/templates"
-	"github.com/allaboutapps/integresql/pkg/util"
 	"github.com/lib/pq"
 )
 
@@ -28,13 +26,9 @@ var (
 type Manager struct {
 	config ManagerConfig
 	db     *sql.DB
-	wg     sync.WaitGroup
 
 	templates *templates.Collection
 	pool      *pool.PoolCollection
-
-	connectionCtx       context.Context // DB connection context used for adding initial DBs in background
-	cancelConnectionCtx func()          // Cancel function for DB connection context
 }
 
 func New(config ManagerConfig) (*Manager, ManagerConfig) {
@@ -67,7 +61,6 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 	m := &Manager{
 		config:    config,
 		db:        nil,
-		wg:        sync.WaitGroup{},
 		templates: templates.NewCollection(),
 		pool: pool.NewPoolCollection(
 			pool.PoolConfig{
@@ -77,7 +70,6 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 				NumOfWorkers:     config.NumOfCleaningWorkers,
 			},
 		),
-		connectionCtx: context.TODO(),
 	}
 
 	return m, m.config
@@ -104,12 +96,6 @@ func (m *Manager) Connect(ctx context.Context) error {
 
 	m.db = db
 
-	// set cancellable connection context
-	// used to stop background tasks
-	ctx, cancel := context.WithCancel(context.Background())
-	m.connectionCtx = ctx
-	m.cancelConnectionCtx = cancel
-
 	return nil
 }
 
@@ -118,21 +104,8 @@ func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
 		return errors.New("manager is not connected")
 	}
 
-	// signal stop to background routines
-	m.cancelConnectionCtx()
-	m.connectionCtx = context.TODO()
-
-	_, err := util.WaitWithCancellableCtx(ctx, func(context.Context) (bool, error) {
-		m.wg.Wait()
-		return true, nil
-	})
-
-	if err != nil {
-		// we didn't manage to stop on time background routines
-		// but we will continue and close the DB connection
-		// TODO anna: error handling
-		fmt.Println("integresql: timeout when stopping background tasks")
-	}
+	// stop the pool before closing DB connection
+	m.pool.Stop()
 
 	if err := m.db.Close(); err != nil && !ignoreCloseError {
 		return err
@@ -151,7 +124,7 @@ func (m *Manager) Reconnect(ctx context.Context, ignoreDisconnectError bool) err
 	return m.Connect(ctx)
 }
 
-func (m *Manager) Ready() bool {
+func (m Manager) Ready() bool {
 	return m.db != nil
 }
 
@@ -182,7 +155,7 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
+func (m Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "initialize_template_db")
 	defer task.End()
 
@@ -233,7 +206,7 @@ func (m *Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (
 	}, nil
 }
 
-func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error {
+func (m Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error {
 
 	ctx, task := trace.NewTask(ctx, "discard_template_db")
 	defer task.End()
@@ -241,8 +214,6 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
-
-	m.wg.Wait()
 
 	// first remove all DB with this hash
 	if err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB); err != nil && !errors.Is(err, pool.ErrUnknownHash) {
@@ -270,7 +241,7 @@ func (m *Manager) DiscardTemplateDatabase(ctx context.Context, hash string) erro
 	return m.dropDatabase(ctx, dbName)
 }
 
-func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
+func (m Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "finalize_template_db")
 	defer task.End()
 
@@ -306,7 +277,7 @@ func (m *Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db
 
 // GetTestDatabase tries to get a ready test DB from an existing pool.
 // If no DB is ready after the preconfigured timeout, ErrTimeout is returned.
-func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
+func (m Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "get_test_db")
 	defer task.End()
 
@@ -346,7 +317,7 @@ func (m *Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestData
 }
 
 // ReturnTestDatabase returns an unchanged test DB to the pool, allowing for reuse without cleaning.
-func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
+func (m Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 	ctx, task := trace.NewTask(ctx, "return_test_db")
 	defer task.End()
 
@@ -382,7 +353,7 @@ func (m *Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) e
 	return nil
 }
 
-func (m *Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) error {
+func (m Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) error {
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
@@ -395,7 +366,7 @@ func (m *Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) er
 	return err
 }
 
-func (m *Manager) ResetAllTracking(ctx context.Context) error {
+func (m Manager) ResetAllTracking(ctx context.Context) error {
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
@@ -410,7 +381,7 @@ func (m *Manager) ResetAllTracking(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) dropDatabaseWithID(ctx context.Context, hash string, id int) error {
+func (m Manager) dropDatabaseWithID(ctx context.Context, hash string, id int) error {
 	dbName := m.pool.MakeDBName(hash, id)
 	exists, err := m.checkDatabaseExists(ctx, dbName)
 	if err != nil {
@@ -424,7 +395,7 @@ func (m *Manager) dropDatabaseWithID(ctx context.Context, hash string, id int) e
 	return m.dropDatabase(ctx, dbName)
 }
 
-func (m *Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool, error) {
+func (m Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool, error) {
 	var exists bool
 
 	// fmt.Printf("SELECT 1 AS exists FROM pg_database WHERE datname = %s\n", dbName)
@@ -440,7 +411,7 @@ func (m *Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool,
 	return exists, nil
 }
 
-func (m *Manager) checkDatabaseConnected(ctx context.Context, dbName string) (bool, error) {
+func (m Manager) checkDatabaseConnected(ctx context.Context, dbName string) (bool, error) {
 
 	var countConnected int
 
@@ -459,7 +430,7 @@ func (m *Manager) checkDatabaseConnected(ctx context.Context, dbName string) (bo
 	return false, nil
 }
 
-func (m *Manager) createDatabase(ctx context.Context, dbName string, owner string, template string) error {
+func (m Manager) createDatabase(ctx context.Context, dbName string, owner string, template string) error {
 
 	defer trace.StartRegion(ctx, "create_db").End()
 
@@ -472,7 +443,7 @@ func (m *Manager) createDatabase(ctx context.Context, dbName string, owner strin
 	return nil
 }
 
-func (m *Manager) recreateTestPoolDB(ctx context.Context, testDB db.TestDatabase, templateName string) error {
+func (m Manager) recreateTestPoolDB(ctx context.Context, testDB db.TestDatabase, templateName string) error {
 
 	connected, err := m.checkDatabaseConnected(ctx, testDB.Database.Config.Database)
 
@@ -487,11 +458,11 @@ func (m *Manager) recreateTestPoolDB(ctx context.Context, testDB db.TestDatabase
 	return m.dropAndCreateDatabase(ctx, testDB.Database.Config.Database, m.config.TestDatabaseOwner, templateName)
 }
 
-func (m *Manager) dropTestPoolDB(ctx context.Context, testDB db.TestDatabase) error {
+func (m Manager) dropTestPoolDB(ctx context.Context, testDB db.TestDatabase) error {
 	return m.dropDatabase(ctx, testDB.Config.Database)
 }
 
-func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
+func (m Manager) dropDatabase(ctx context.Context, dbName string) error {
 
 	defer trace.StartRegion(ctx, "drop_db").End()
 
@@ -508,7 +479,7 @@ func (m *Manager) dropDatabase(ctx context.Context, dbName string) error {
 	return nil
 }
 
-func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owner string, template string) error {
+func (m Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owner string, template string) error {
 	if !m.Ready() {
 		return ErrManagerNotReady
 	}
@@ -520,6 +491,6 @@ func (m *Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owne
 	return m.createDatabase(ctx, dbName, owner, template)
 }
 
-func (m *Manager) makeTemplateDatabaseName(hash string) string {
+func (m Manager) makeTemplateDatabaseName(hash string) string {
 	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
 }

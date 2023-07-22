@@ -179,8 +179,8 @@ func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Databas
 func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, maxConcurrentTasks int) {
 
 	handlers := map[string]func(ctx context.Context) error{
-		workerTaskExtend:     pool.extendIngoreErrPoolFull,
-		workerTaskCleanDirty: pool.cleanDirty,
+		workerTaskExtend:     ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
+		workerTaskCleanDirty: ignoreErrs(pool.cleanDirty, context.Canceled),
 	}
 
 	// to limit the number of running goroutines.
@@ -209,7 +209,7 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 
 			// fmt.Println("task", task)
 			if err := handler(ctx); err != nil {
-				// fmt.Println("task", task, "failed:", err.Error())
+				fmt.Println("task", task, "failed:", err.Error())
 			}
 		}(task)
 
@@ -242,12 +242,6 @@ func (pool *HashPool) controlLoop() {
 			// be available to receive Stop message at any time
 		}
 	}
-}
-
-func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
-
-	return nil
-
 }
 
 func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
@@ -314,7 +308,7 @@ func (pool *HashPool) cleanDirty(ctx context.Context) error {
 	reg.End()
 
 	if err != nil {
-		fmt.Printf("worker_clean_dirty: failed to clean up DB ID='%v': %v\n", id, err)
+		// fmt.Printf("worker_clean_dirty: failed to clean up DB ID='%v': %v\n", id, err)
 
 		// we guarantee FIFO, we must keeping trying to clean up **exactly this** test database!
 		if errors.Is(err, ErrTestDBInUse) {
@@ -349,13 +343,16 @@ func (pool *HashPool) cleanDirty(ctx context.Context) error {
 	return nil
 }
 
-func (pool *HashPool) extendIngoreErrPoolFull(ctx context.Context) error {
-	err := pool.extend(ctx)
-	if errors.Is(err, ErrPoolFull) {
-		return nil
+func ignoreErrs(f func(ctx context.Context) error, errs ...error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		err := f(ctx)
+		for _, e := range errs {
+			if errors.Is(err, e) {
+				return nil
+			}
+		}
+		return err
 	}
-
-	return err
 }
 
 func (pool *HashPool) extend(ctx context.Context) error {
