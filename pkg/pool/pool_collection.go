@@ -14,11 +14,10 @@ import (
 var ErrUnknownHash = errors.New("no database pool exists for this hash")
 
 type PoolConfig struct {
-	MaxPoolSize        int
-	InitialPoolSize    int
-	TestDBNamePrefix   string
-	NumOfWorkers       int // Number of cleaning workers (each hash pool runs this number of workers).
-	MaxConcurrentTasks int
+	MaxPoolSize          int
+	InitialPoolSize      int
+	TestDBNamePrefix     string
+	PoolMaxParallelTasks int
 }
 
 type PoolCollection struct {

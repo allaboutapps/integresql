@@ -17,9 +17,9 @@ func TestPoolAddGet(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      2,
-		NumOfWorkers:     4,
-		TestDBNamePrefix: "prefix_",
+		MaxPoolSize:          2,
+		PoolMaxParallelTasks: 4,
+		TestDBNamePrefix:     "prefix_",
 	}
 	p := pool.NewPoolCollection(cfg)
 
@@ -92,10 +92,10 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 
 	maxPoolSize := 15
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      maxPoolSize,
-		InitialPoolSize:  maxPoolSize,
-		NumOfWorkers:     4,
-		TestDBNamePrefix: "",
+		MaxPoolSize:          maxPoolSize,
+		InitialPoolSize:      maxPoolSize,
+		PoolMaxParallelTasks: 4,
+		TestDBNamePrefix:     "",
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })
@@ -147,9 +147,9 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      40,
-		NumOfWorkers:     4,
-		TestDBNamePrefix: "",
+		MaxPoolSize:          40,
+		PoolMaxParallelTasks: 4,
+		TestDBNamePrefix:     "",
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })
@@ -210,8 +210,8 @@ func TestPoolRemoveAll(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:  6,
-		NumOfWorkers: 4,
+		MaxPoolSize:          6,
+		PoolMaxParallelTasks: 4,
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })
@@ -261,10 +261,10 @@ func TestPoolReuseDirty(t *testing.T) {
 
 	maxPoolSize := 40
 	cfg := pool.PoolConfig{
-		MaxPoolSize:      maxPoolSize,
-		InitialPoolSize:  maxPoolSize,
-		NumOfWorkers:     1,
-		TestDBNamePrefix: "test_",
+		MaxPoolSize:          maxPoolSize,
+		InitialPoolSize:      maxPoolSize,
+		PoolMaxParallelTasks: 1,
+		TestDBNamePrefix:     "test_",
 	}
 	p := pool.NewPoolCollection(cfg)
 
@@ -272,7 +272,7 @@ func TestPoolReuseDirty(t *testing.T) {
 	t.Cleanup(func() { p.Stop() })
 
 	getDirty := func(seenIDMap *sync.Map) {
-		newTestDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 10*time.Millisecond)
+		newTestDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 1*time.Second)
 		assert.NoError(t, err)
 		seenIDMap.Store(newTestDB1.ID, true)
 	}
@@ -320,8 +320,8 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:  10,
-		NumOfWorkers: 3,
+		MaxPoolSize:          10,
+		PoolMaxParallelTasks: 3,
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })

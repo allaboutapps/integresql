@@ -26,7 +26,7 @@ const (
 	dbStateDirty                // Taken by a client and potentially currently in use.
 )
 
-const minConcurrentTasksNum = 3 // controlLoop + workerTaskLoop + at least one goroutine to handle a task
+const minConcurrentTasksNum = 1
 
 type existingDB struct {
 	state     dbState
@@ -63,8 +63,8 @@ type HashPool struct {
 // Starts the workers to extend the pool in background up to requested inital number.
 func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *HashPool {
 
-	if cfg.MaxConcurrentTasks < minConcurrentTasksNum {
-		cfg.MaxConcurrentTasks = minConcurrentTasksNum
+	if cfg.PoolMaxParallelTasks < minConcurrentTasksNum {
+		cfg.PoolMaxParallelTasks = minConcurrentTasksNum
 	}
 
 	pool := &HashPool{
@@ -176,7 +176,7 @@ func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Databas
 	return pool.extend(ctx)
 }
 
-func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, maxConcurrentTasks int) {
+func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, poolMaxParallelTasks int) {
 
 	handlers := map[string]func(ctx context.Context) error{
 		workerTaskExtend:     ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
@@ -184,7 +184,7 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 	}
 
 	// to limit the number of running goroutines.
-	var semaphore = make(chan struct{}, pool.MaxConcurrentTasks)
+	var semaphore = make(chan struct{}, poolMaxParallelTasks)
 
 	for task := range taskChan {
 		handler, ok := handlers[task]
@@ -225,7 +225,7 @@ func (pool *HashPool) controlLoop() {
 	pool.wg.Add(1)
 	go func() {
 		defer pool.wg.Done()
-		pool.workerTaskLoop(ctx, workerTasksChan, pool.MaxConcurrentTasks)
+		pool.workerTaskLoop(ctx, workerTasksChan, pool.PoolMaxParallelTasks)
 	}()
 
 	for task := range pool.tasksChan {

@@ -58,16 +58,20 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		config.TestDatabaseInitialPoolSize = config.TestDatabaseMaxPoolSize
 	}
 
+	if config.PoolMaxParallelTasks < 1 {
+		config.PoolMaxParallelTasks = 1
+	}
+
 	m := &Manager{
 		config:    config,
 		db:        nil,
 		templates: templates.NewCollection(),
 		pool: pool.NewPoolCollection(
 			pool.PoolConfig{
-				MaxPoolSize:      config.TestDatabaseMaxPoolSize,
-				InitialPoolSize:  config.TestDatabaseInitialPoolSize,
-				TestDBNamePrefix: testDBPrefix,
-				NumOfWorkers:     config.NumOfCleaningWorkers,
+				MaxPoolSize:          config.TestDatabaseMaxPoolSize,
+				InitialPoolSize:      config.TestDatabaseInitialPoolSize,
+				TestDBNamePrefix:     testDBPrefix,
+				PoolMaxParallelTasks: config.PoolMaxParallelTasks,
 			},
 		),
 	}

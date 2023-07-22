@@ -21,7 +21,7 @@ type ManagerConfig struct {
 	TestDatabaseMaxPoolSize     int           // Maximal pool size that won't be exceeded
 	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
 	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database before extending the pool
-	NumOfCleaningWorkers        int           // Number of pool workers cleaning up dirty DBs
+	PoolMaxParallelTasks        int           // Maximal number of pool tasks running in parallel. Must be a number greater or equal 1.
 }
 
 func DefaultManagerConfigFromEnv() ManagerConfig {
@@ -60,8 +60,8 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", runtime.NumCPU()),
 		// TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
 		TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", runtime.NumCPU()*4),
-		TemplateFinalizeTimeout: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 60000)), // TODO eventually even bigger defaults?
-		TestDatabaseGetTimeout:  time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 500)),         // only used when INTEGRESQL_TEST_DB_FORCE_RETURN=true
-		NumOfCleaningWorkers:    util.GetEnvAsInt("INTEGRESQL_NUM_OF_CLEANING_WORKERS", runtime.NumCPU()),
+		TemplateFinalizeTimeout: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 5*60*10e3 /*5 min*/)),
+		TestDatabaseGetTimeout:  time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 1*60*10e3 /*1 min, timeout hardcoded also in GET request handler*/)),
+		PoolMaxParallelTasks:    util.GetEnvAsInt("INTEGRESQL_POOL_MAX_PARALLEL_TASKS", runtime.NumCPU()),
 	}
 }
