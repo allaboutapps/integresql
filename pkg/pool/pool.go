@@ -118,7 +118,7 @@ func (pool *HashPool) Stop() {
 func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
 	var index int
 
-	// fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
+	fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
 
 	select {
 	case <-time.After(timeout):
@@ -130,7 +130,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	case index = <-pool.ready:
 	}
 
-	// fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
+	fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
 
 	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
@@ -147,7 +147,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	// sanity check, should never happen - we got this index from 'ready' channel
 	if testDB.state != dbStateReady {
 
-		// fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
+		fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
 
 		err = ErrInvalidState
 		return
@@ -167,7 +167,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 		pool.tasksChan <- workerTaskCleanDirty
 	}
 
-	// fmt.Printf("pool#%s: ready=%d, dirty=%d, waitingForCleaning=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", hash, len(pool.ready), len(pool.dirty), len(pool.waitingForCleaning), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
+	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 
 	return testDB.TestDatabase, nil
 }
@@ -177,6 +177,8 @@ func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Databas
 }
 
 func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, poolMaxParallelTasks int) {
+
+	fmt.Println("workerTaskLoop")
 
 	handlers := map[string]func(ctx context.Context) error{
 		workerTaskExtend:     ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
@@ -217,6 +219,8 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 }
 
 func (pool *HashPool) controlLoop() {
+
+	fmt.Println("controlLoop")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -340,6 +344,7 @@ func (pool *HashPool) cleanDirty(ctx context.Context) error {
 
 	pool.ready <- testDB.ID
 
+	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (cleanDirty)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 	return nil
 }
 
@@ -362,6 +367,9 @@ func (pool *HashPool) extend(ctx context.Context) error {
 
 	reg := trace.StartRegion(ctx, "worker_wait_for_lock_hash_pool")
 	pool.Lock()
+
+	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (extend)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
+
 	defer pool.Unlock()
 	reg.End()
 

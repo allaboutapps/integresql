@@ -280,7 +280,6 @@ func (m Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.
 }
 
 // GetTestDatabase tries to get a ready test DB from an existing pool.
-// If no DB is ready after the preconfigured timeout, ErrTimeout is returned.
 func (m Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "get_test_db")
 	defer task.End()
