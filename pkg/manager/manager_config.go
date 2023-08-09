@@ -20,7 +20,7 @@ type ManagerConfig struct {
 	TestDatabaseInitialPoolSize int           // Initial number of ready DBs prepared in background
 	TestDatabaseMaxPoolSize     int           // Maximal pool size that won't be exceeded
 	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
-	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database before extending the pool
+	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database
 	PoolMaxParallelTasks        int           // Maximal number of pool tasks running in parallel. Must be a number greater or equal 1.
 }
 

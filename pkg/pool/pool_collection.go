@@ -44,7 +44,6 @@ type RemoveDBFunc func(ctx context.Context, testDB db.TestDatabase) error
 
 func makeActualRecreateTestDBFunc(templateName string, userRecreateFunc RecreateDBFunc) recreateTestDBFunc {
 	return func(ctx context.Context, testDBWrapper *existingDB) error {
-		testDBWrapper.createdAt = time.Now()
 		return userRecreateFunc(ctx, testDBWrapper.TestDatabase, templateName)
 	}
 }
@@ -112,6 +111,16 @@ func (p *PoolCollection) ReturnTestDatabase(ctx context.Context, hash string, id
 	}
 
 	return pool.ReturnTestDatabase(ctx, hash, id)
+}
+
+// RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
+func (p *PoolCollection) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
+	pool, err := p.getPool(ctx, hash)
+	if err != nil {
+		return err
+	}
+
+	return pool.RecreateTestDatabase(ctx, hash, id)
 }
 
 // RemoveAllWithHash removes a pool with a given template hash.

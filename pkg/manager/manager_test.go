@@ -644,6 +644,64 @@ func TestManagerGetAndReturnTestDatabase(t *testing.T) {
 	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
 }
 
+func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := manager.DefaultManagerConfigFromEnv()
+	cfg.TestDatabaseInitialPoolSize = 10
+	cfg.TestDatabaseMaxPoolSize = 15
+	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
+	m, _ := testManagerWithConfig(cfg)
+
+	if err := m.Initialize(ctx); err != nil {
+		t.Fatalf("initializing manager failed: %v", err)
+	}
+
+	defer disconnectManager(t, m)
+
+	hash := "hashinghash"
+
+	template, err := m.InitializeTemplateDatabase(ctx, hash)
+	if err != nil {
+		t.Fatalf("failed to initialize template database: %v", err)
+	}
+
+	populateTemplateDB(t, template)
+
+	if _, err := m.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		t.Fatalf("failed to finalize template database: %v", err)
+	}
+
+	// request many more databases than initally added
+	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*3; i++ {
+		test, err := m.GetTestDatabase(ctx, hash)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, test)
+
+		db, err := sql.Open("postgres", test.Config.ConnectionString())
+		require.NoError(t, err)
+		require.NoError(t, db.PingContext(ctx))
+
+		// assert that it's always initialized according to a template
+		var res int
+		assert.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pilots WHERE name = 'Anna'").Scan(&res))
+		assert.Equal(t, 0, res, i)
+
+		// make changes into test DB
+		_, err = db.ExecContext(ctx, `INSERT INTO pilots (id, "name", created_at, updated_at) VALUES ('844a1a87-5ef7-4309-8814-0f1054751156', 'Anna', '2023-03-23 09:44:00.548', '2023-03-23 09:44:00.548');`)
+		require.NoError(t, err)
+		assert.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pilots WHERE name = 'Anna'").Scan(&res))
+		assert.Equal(t, 1, res)
+		db.Close()
+
+		// recreate testDB after usage
+		assert.NoError(t, m.RecreateTestDatabase(ctx, hash, test.ID))
+	}
+
+	// discard the template
+	assert.NoError(t, m.DiscardTemplateDatabase(ctx, hash))
+}
+
 func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 
 	ctx := context.Background()
