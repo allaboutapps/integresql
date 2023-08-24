@@ -29,8 +29,7 @@ const (
 const minConcurrentTasksNum = 1
 
 type existingDB struct {
-	state     dbState
-	createdAt time.Time
+	state dbState
 	db.TestDatabase
 }
 
@@ -248,6 +247,7 @@ func (pool *HashPool) controlLoop() {
 	}
 }
 
+// ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).
 func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
 	pool.Lock()
 	defer pool.Unlock()
@@ -263,6 +263,41 @@ func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id in
 	}
 
 	// directly change the state to 'ready'
+	testDB.state = dbStateReady
+	pool.dbs[id] = testDB
+
+	pool.ready <- id
+
+	return nil
+
+}
+
+// RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
+func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
+
+	pool.RLock()
+	if id < 0 || id >= len(pool.dbs) {
+		pool.RUnlock()
+		return ErrInvalidIndex
+	}
+
+	// check if db is in the correct state
+	testDB := pool.dbs[id]
+	pool.RUnlock()
+
+	if testDB.state == dbStateReady {
+		return nil
+	}
+
+	// state is dirty -> we will now recreate it
+	if err := pool.recreateDB(ctx, &testDB); err != nil {
+		return err
+	}
+
+	pool.Lock()
+	defer pool.Unlock()
+
+	// change the state to 'ready'
 	testDB.state = dbStateReady
 	pool.dbs[id] = testDB
 
@@ -381,8 +416,7 @@ func (pool *HashPool) extend(ctx context.Context) error {
 
 	// initalization of a new DB using template config
 	newTestDB := existingDB{
-		state:     dbStateReady,
-		createdAt: time.Now(),
+		state: dbStateReady,
 		TestDatabase: db.TestDatabase{
 			Database: db.Database{
 				TemplateHash: pool.templateDB.TemplateHash,

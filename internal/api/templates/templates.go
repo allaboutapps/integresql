@@ -154,3 +154,30 @@ func postUnlockTestDatabase(s *api.Server) echo.HandlerFunc {
 		return c.NoContent(http.StatusNoContent)
 	}
 }
+
+func postRecreateTestDatabase(s *api.Server) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		hash := c.Param("hash")
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
+		}
+
+		if err := s.Manager.RecreateTestDatabase(c.Request().Context(), hash, id); err != nil {
+			switch err {
+			case manager.ErrManagerNotReady:
+				return echo.ErrServiceUnavailable
+			case manager.ErrTemplateNotFound:
+				return echo.NewHTTPError(http.StatusNotFound, "template not found")
+			case manager.ErrTestNotFound:
+				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
+			case pool.ErrTestDBInUse:
+				return echo.NewHTTPError(http.StatusLocked, pool.ErrTestDBInUse.Error())
+			default:
+				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+			}
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	}
+}

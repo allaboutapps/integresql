@@ -12,7 +12,6 @@
             "program": "${workspaceFolder}/cmd/server",
             "env": {},
             "args": [],
-            "preLaunchTask": "build"
         }
     ]
 }
