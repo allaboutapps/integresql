@@ -162,7 +162,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 
 	// we try to ensure that InitialPoolSize count is staying ready
 	// thus, we try to move the oldest dirty dbs into cleaning
-	if len(pool.dbs) >= pool.PoolConfig.MaxPoolSize {
+	if len(pool.dbs) >= pool.PoolConfig.MaxPoolSize && len(pool.ready) < pool.InitialPoolSize {
 		pool.tasksChan <- workerTaskCleanDirty
 	}
 
@@ -266,10 +266,29 @@ func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id in
 	testDB.state = dbStateReady
 	pool.dbs[id] = testDB
 
+	// fmt.Printf("ReturnTestDatabase %v: close channel\n", id)
+
+	// The testDB is still in the dirty channel.
+	// We need to explicitly remove it from there by force closing the channel so we can range over it and thus recreate a new dirty channel without the returned ID.
+	newDirty := make(chan int, pool.MaxPoolSize)
+	close(pool.dirty)
+
+	for dirtyID := range pool.dirty {
+		if dirtyID != id {
+			newDirty <- dirtyID
+		}
+	}
+
+	// fmt.Printf("ReturnTestDatabase %v: reset channel\n", id)
+	pool.dirty = newDirty
+
+	// fmt.Printf("ReturnTestDatabase %v: ready\n", id)
+	// id to ready again.
 	pool.ready <- id
 
-	return nil
+	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (ReturnTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 
+	return nil
 }
 
 // RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
@@ -301,7 +320,27 @@ func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id 
 	testDB.state = dbStateReady
 	pool.dbs[id] = testDB
 
+	// fmt.Printf("RecreateTestDatabase %v: close channel\n", id)
+
+	// The testDB is still in the dirty channel.
+	// We need to explicitly remove it from there by force closing the channel so we can range over it and thus recreate a new dirty channel without the returned ID.
+	newDirty := make(chan int, pool.MaxPoolSize)
+	close(pool.dirty)
+
+	for dirtyID := range pool.dirty {
+		if dirtyID != id {
+			newDirty <- dirtyID
+		}
+	}
+
+	// fmt.Printf("RecreateTestDatabase %v: reset channel\n", id)
+	pool.dirty = newDirty
+
+	// fmt.Printf("RecreateTestDatabase %v: ready\n", id)
+	// id to ready again.
 	pool.ready <- id
+
+	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (RecreateTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 
 	return nil
 

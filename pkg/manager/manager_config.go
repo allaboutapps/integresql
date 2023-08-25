@@ -60,8 +60,8 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", runtime.NumCPU()),
 		// TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
 		TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", runtime.NumCPU()*4),
-		TemplateFinalizeTimeout: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 5*60*10e3 /*5 min*/)),
-		TestDatabaseGetTimeout:  time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 1*60*10e3 /*1 min, timeout hardcoded also in GET request handler*/)),
+		TemplateFinalizeTimeout: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 5*60*1000 /*5 min*/)),
+		TestDatabaseGetTimeout:  time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 1*60*1000 /*1 min, timeout hardcoded also in GET request handler*/)),
 		PoolMaxParallelTasks:    util.GetEnvAsInt("INTEGRESQL_POOL_MAX_PARALLEL_TASKS", runtime.NumCPU()),
 	}
 }
