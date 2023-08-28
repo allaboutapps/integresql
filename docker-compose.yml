@@ -5,8 +5,8 @@ services:
     build:
       context: .
       target: development
-    ports:
-      - "5000:5000"
+    # ports:
+    #   - "5000:5000"
     working_dir: /app
     volumes:
       - .:/app #:delegated

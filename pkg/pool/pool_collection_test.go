@@ -17,9 +17,10 @@ func TestPoolAddGet(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := pool.PoolConfig{
-		MaxPoolSize:          2,
-		PoolMaxParallelTasks: 4,
-		TestDBNamePrefix:     "prefix_",
+		MaxPoolSize:            2,
+		PoolMaxParallelTasks:   4,
+		TestDBNamePrefix:       "prefix_",
+		DisableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
 	}
 	p := pool.NewPoolCollection(cfg)
 
@@ -37,16 +38,17 @@ func TestPoolAddGet(t *testing.T) {
 		return nil
 	}
 	p.InitHashPool(ctx, templateDB, initFunc)
+
 	t.Cleanup(func() { p.Stop() })
 
-	// get from empty
+	// get from empty (just initialized)
 	_, err := p.GetTestDatabase(ctx, hash1, 0)
 	assert.Error(t, err, pool.ErrTimeout)
 
 	// add a new one
 	assert.NoError(t, p.AddTestDatabase(ctx, templateDB))
 	// get it
-	testDB, err := p.GetTestDatabase(ctx, hash1, 100*time.Millisecond)
+	testDB, err := p.GetTestDatabase(ctx, hash1, 1*time.Second)
 	assert.NoError(t, err)
 	assert.Equal(t, "prefix_h1_000", testDB.Database.Config.Database)
 	assert.Equal(t, "ich", testDB.Database.Config.Username)
@@ -60,14 +62,14 @@ func TestPoolAddGet(t *testing.T) {
 	assert.ErrorIs(t, p.AddTestDatabase(ctx, templateDB2), pool.ErrPoolFull)
 
 	// get from empty h1
-	_, err = p.GetTestDatabase(ctx, hash1, 0)
-	assert.Error(t, err, pool.ErrTimeout)
+	_, err = p.GetTestDatabase(ctx, hash1, 100*time.Millisecond)
+	assert.ErrorIs(t, err, pool.ErrTimeout)
 
 	// get from h2
-	testDB1, err := p.GetTestDatabase(ctx, hash2, 0)
+	testDB1, err := p.GetTestDatabase(ctx, hash2, 1*time.Second)
 	assert.NoError(t, err)
 	assert.Equal(t, hash2, testDB1.TemplateHash)
-	testDB2, err := p.GetTestDatabase(ctx, hash2, 0)
+	testDB2, err := p.GetTestDatabase(ctx, hash2, 1*time.Second)
 	assert.NoError(t, err)
 	assert.Equal(t, hash2, testDB2.TemplateHash)
 	assert.NotEqual(t, testDB1.ID, testDB2.ID)
@@ -237,7 +239,7 @@ func TestPoolRemoveAll(t *testing.T) {
 	// start using pool again
 	p.InitHashPool(ctx, templateDB1, initFunc)
 	assert.NoError(t, p.AddTestDatabase(ctx, templateDB1))
-	testDB, err := p.GetTestDatabase(ctx, hash1, 0)
+	testDB, err := p.GetTestDatabase(ctx, hash1, 1*time.Second)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, testDB.ID)
 }
@@ -320,18 +322,15 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:          10,
-		PoolMaxParallelTasks: 3,
+		MaxPoolSize:            10,
+		PoolMaxParallelTasks:   3,
+		DisableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
 	}
 	p := pool.NewPoolCollection(cfg)
-	t.Cleanup(func() { p.Stop() })
 
 	p.InitHashPool(ctx, templateDB1, initFunc)
 	// add just one test DB
 	require.NoError(t, p.AddTestDatabase(ctx, templateDB1))
-
-	// stop the workers to prevent auto cleaning in background
-	p.Stop()
 
 	testDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, time.Millisecond)
 	assert.NoError(t, err)

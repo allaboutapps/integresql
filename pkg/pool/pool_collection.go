@@ -14,10 +14,11 @@ import (
 var ErrUnknownHash = errors.New("no database pool exists for this hash")
 
 type PoolConfig struct {
-	MaxPoolSize          int
-	InitialPoolSize      int
-	TestDBNamePrefix     string
-	PoolMaxParallelTasks int
+	MaxPoolSize            int
+	InitialPoolSize        int
+	TestDBNamePrefix       string
+	PoolMaxParallelTasks   int
+	DisableWorkerAutostart bool
 }
 
 type PoolCollection struct {
@@ -59,10 +60,23 @@ func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Databas
 
 	// Create a new HashPool
 	pool := NewHashPool(cfg, templateDB, initDBFunc)
-	pool.Start()
+
+	if !cfg.DisableWorkerAutostart {
+		pool.Start()
+	}
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
+}
+
+// Start is used to start all background workers
+func (p *PoolCollection) Start() {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	for _, pool := range p.pools {
+		pool.Start()
+	}
 }
 
 // Stop is used to stop all background workers
@@ -73,7 +87,6 @@ func (p *PoolCollection) Stop() {
 	for _, pool := range p.pools {
 		pool.Stop()
 	}
-
 }
 
 // GetTestDatabase picks up a ready to use test DB. It waits the given timeout until a DB is available.

@@ -157,6 +157,7 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	pool.dirty <- index
 
 	if len(pool.dbs) < pool.PoolConfig.MaxPoolSize {
+		fmt.Printf("pool#%s: Conditional extend\n", hash)
 		pool.tasksChan <- workerTaskExtend
 	}
 
@@ -177,7 +178,7 @@ func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Databas
 
 func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, poolMaxParallelTasks int) {
 
-	fmt.Println("workerTaskLoop")
+	fmt.Printf("pool#%s: workerTaskLoop\n", pool.templateDB.TemplateHash)
 
 	handlers := map[string]func(ctx context.Context) error{
 		workerTaskExtend:     ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
@@ -208,9 +209,10 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 				<-semaphore
 			}()
 
-			// fmt.Println("task", task)
+			fmt.Printf("pool#%s: workerTaskLoop task=%v\n", pool.templateDB.TemplateHash, task)
+
 			if err := handler(ctx); err != nil {
-				fmt.Println("task", task, "failed:", err.Error())
+				fmt.Printf("pool#%s: workerTaskLoop task=%v FAILED! err=%v\n", pool.templateDB.TemplateHash, task, err.Error())
 			}
 		}(task)
 
@@ -219,7 +221,7 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 
 func (pool *HashPool) controlLoop() {
 
-	fmt.Println("controlLoop")
+	fmt.Printf("pool#%s: controlLoop\n", pool.templateDB.TemplateHash)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -266,29 +268,43 @@ func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id in
 	testDB.state = dbStateReady
 	pool.dbs[id] = testDB
 
-	// fmt.Printf("ReturnTestDatabase %v: close channel\n", id)
-
-	// The testDB is still in the dirty channel.
-	// We need to explicitly remove it from there by force closing the channel so we can range over it and thus recreate a new dirty channel without the returned ID.
-	newDirty := make(chan int, pool.MaxPoolSize)
-	close(pool.dirty)
-
-	for dirtyID := range pool.dirty {
-		if dirtyID != id {
-			newDirty <- dirtyID
-		}
-	}
-
-	// fmt.Printf("ReturnTestDatabase %v: reset channel\n", id)
-	pool.dirty = newDirty
-
-	// fmt.Printf("ReturnTestDatabase %v: ready\n", id)
-	// id to ready again.
+	// remove id from dirty and add it to ready channel
+	pool.excludeIDFromDirtyChannel(id)
 	pool.ready <- id
 
 	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (ReturnTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 
 	return nil
+}
+
+func (pool *HashPool) excludeIDFromDirtyChannel(id int) {
+
+	// The testDB identified by overgiven id may still in the dirty channel. We want to exclude it.
+	// We need to explicitly remove it from there by filtering the current channel to a tmp channel.
+	// We finally close the tmp channel and flush it onto the dirty channel again.
+	// The db is ready again.
+	filteredDirty := make(chan int, pool.MaxPoolSize)
+
+	var dirtyID int
+	for loop := true; loop; {
+		select {
+		case dirtyID = <-pool.dirty:
+			if dirtyID != id {
+				filteredDirty <- dirtyID
+			}
+		default:
+			loop = false
+			break
+		}
+	}
+
+	// filteredDirty now has all filtered values without the returned id, redirect the other back to the dirty channel.
+	// close so we can range over it...
+	close(filteredDirty)
+
+	for dirtyID := range filteredDirty {
+		pool.dirty <- dirtyID
+	}
 }
 
 // RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
@@ -320,24 +336,8 @@ func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id 
 	testDB.state = dbStateReady
 	pool.dbs[id] = testDB
 
-	// fmt.Printf("RecreateTestDatabase %v: close channel\n", id)
-
-	// The testDB is still in the dirty channel.
-	// We need to explicitly remove it from there by force closing the channel so we can range over it and thus recreate a new dirty channel without the returned ID.
-	newDirty := make(chan int, pool.MaxPoolSize)
-	close(pool.dirty)
-
-	for dirtyID := range pool.dirty {
-		if dirtyID != id {
-			newDirty <- dirtyID
-		}
-	}
-
-	// fmt.Printf("RecreateTestDatabase %v: reset channel\n", id)
-	pool.dirty = newDirty
-
-	// fmt.Printf("RecreateTestDatabase %v: ready\n", id)
-	// id to ready again.
+	// remove id from dirty and add it to ready channel
+	pool.excludeIDFromDirtyChannel(id)
 	pool.ready <- id
 
 	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (RecreateTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
@@ -361,20 +361,23 @@ func (pool *HashPool) cleanDirty(ctx context.Context) error {
 		return ctx.Err()
 	default:
 		// nothing to do
+		fmt.Println("cleanDirty noop", id)
 		return nil
 	}
 
+	fmt.Printf("pool#%s: cleanDirty %v\n", pool.templateDB.TemplateHash, id)
+
 	regLock := trace.StartRegion(ctx, "worker_wait_for_rlock_hash_pool")
-	pool.RLock()
+	pool.Lock()
 	regLock.End()
 
 	if id < 0 || id >= len(pool.dbs) {
 		// sanity check, should never happen
-		pool.RUnlock()
+		pool.Unlock()
 		return ErrInvalidIndex
 	}
 	testDB := pool.dbs[id]
-	pool.RUnlock()
+	pool.Unlock()
 
 	if testDB.state == dbStateReady {
 		// nothing to do
@@ -441,10 +444,9 @@ func (pool *HashPool) extend(ctx context.Context) error {
 
 	reg := trace.StartRegion(ctx, "worker_wait_for_lock_hash_pool")
 	pool.Lock()
+	defer pool.Unlock()
 
 	fmt.Printf("pool#%s: ready=%d, dirty=%d, tasksChan=%d, dbs=%d initial=%d max=%d (extend)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
-
-	defer pool.Unlock()
 	reg.End()
 
 	// get index of a next test DB - its ID

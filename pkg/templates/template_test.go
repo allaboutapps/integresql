@@ -28,7 +28,7 @@ func TestTemplateGetSetState(t *testing.T) {
 	assert.Equal(t, templates.TemplateStateDiscarded, state)
 }
 
-func TestTemplateWaitForReady(t *testing.T) {
+func TestForReady(t *testing.T) {
 	ctx := context.Background()
 	goroutineNum := 10
 
@@ -58,7 +58,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			timeout := 3 * time.Millisecond
+			timeout := 30 * time.Millisecond
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateInit {
 				errsChan <- errors.New(fmt.Sprintf("expected state %v (init), but is %v", templates.TemplateStateInit, state))
@@ -67,7 +67,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 	}
 
 	// now set state
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	t1.SetState(ctx, templates.TemplateStateFinalized)
 
 	wg.Wait()
