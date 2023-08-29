@@ -675,6 +675,9 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	// request many more databases than initally added
 	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*2; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
+
+		t.Logf("open %v", test.ID)
+
 		assert.NoError(t, err)
 		assert.NotEmpty(t, test)
 
@@ -692,6 +695,8 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 		require.NoError(t, err)
 		assert.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pilots WHERE name = 'Anna'").Scan(&res))
 		assert.Equal(t, 1, res)
+
+		t.Logf("close %v", test.ID)
 		db.Close()
 
 		// recreate testDB after usage
@@ -882,8 +887,8 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 		t.Fatalf("failed to manually create template database %q: %v", dbName, err)
 	}
 
-	if err := m.ReturnTestDatabase(ctx, hash, id); err != nil {
-		t.Fatalf("failed to return manually created test database: %v", err)
+	if err := m.ReturnTestDatabase(ctx, hash, id); err == nil {
+		t.Fatalf("succeeded to return manually created test database: %v", err) // this should not work!
 	}
 }
 

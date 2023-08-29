@@ -331,7 +331,7 @@ func (m Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	// check if the template exists and is finalized
 	template, found := m.templates.Get(ctx, hash)
 	if !found {
-		return m.dropDatabaseWithID(ctx, hash, id)
+		return ErrTemplateNotFound
 	}
 
 	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) !=
@@ -342,15 +342,10 @@ func (m Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 
 	// template is ready, we can return unchanged testDB to the pool
 	if err := m.pool.ReturnTestDatabase(ctx, hash, id); err != nil {
-		if !(errors.Is(err, pool.ErrInvalidIndex) ||
-			errors.Is(err, pool.ErrUnknownHash)) {
-			// other error is an internal error
-			return err
-		}
 
-		// db is not tracked in the pool
-		// try to drop it if exists
-		return m.dropDatabaseWithID(ctx, hash, id)
+		fmt.Printf("manager.ReturnTestDatabase error: %v\n", err)
+
+		return err
 	}
 
 	return nil
@@ -368,7 +363,7 @@ func (m *Manager) RecreateTestDatabase(ctx context.Context, hash string, id int)
 	// check if the template exists and is finalized
 	template, found := m.templates.Get(ctx, hash)
 	if !found {
-		return m.dropDatabaseWithID(ctx, hash, id)
+		return ErrTemplateNotFound
 	}
 
 	if template.WaitUntilFinalized(ctx, m.config.TemplateFinalizeTimeout) !=
@@ -376,17 +371,12 @@ func (m *Manager) RecreateTestDatabase(ctx context.Context, hash string, id int)
 		return ErrInvalidTemplateState
 	}
 
-	// template is ready, we can returb the testDB to the pool and have it cleaned up
+	// template is ready, we can return the testDB to the pool and have it cleaned up
 	if err := m.pool.RecreateTestDatabase(ctx, hash, id); err != nil {
-		if !(errors.Is(err, pool.ErrInvalidIndex) ||
-			errors.Is(err, pool.ErrUnknownHash)) {
-			// other error is an internal error
-			return err
-		}
 
-		// db is not tracked in the pool
-		// try to drop it if exists
-		return m.dropDatabaseWithID(ctx, hash, id)
+		fmt.Printf("manager.RecreateTestDatabase error: %v\n", err)
+
+		return err
 	}
 
 	return nil
