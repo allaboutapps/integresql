@@ -62,6 +62,7 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 			MaxParallelTasks:                  util.GetEnvAsInt("INTEGRESQL_POOL_MAX_PARALLEL_TASKS", runtime.NumCPU()),
 			TestDatabaseRetryRecreateSleepMin: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_RETRY_RECREATE_SLEEP_MIN_MS", 250 /*250 ms*/)),
 			TestDatabaseRetryRecreateSleepMax: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_RETRY_RECREATE_SLEEP_MAX_MS", 1000*3 /*3 sec*/)),
+			TestDatabaseMinimalLifetime:       time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_MINIMAL_LIFETIME_MS", 250 /*250 ms*/)),
 		},
 	}
 }

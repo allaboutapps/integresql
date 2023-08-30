@@ -648,9 +648,9 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.PoolConfig.InitialPoolSize = 4
+	cfg.PoolConfig.InitialPoolSize = 8
 	cfg.PoolConfig.MaxPoolSize = 8
-	cfg.TestDatabaseGetTimeout = 500 * time.Millisecond
+	cfg.TestDatabaseGetTimeout = 1000 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -673,7 +673,7 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	}
 
 	// request many more databases than initally added
-	for i := 0; i <= cfg.PoolConfig.MaxPoolSize*2; i++ {
+	for i := 0; i <= cfg.PoolConfig.MaxPoolSize*5; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
 
 		t.Logf("open %v", test.ID)
@@ -714,7 +714,7 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.PoolConfig.InitialPoolSize = 5
 	cfg.PoolConfig.MaxPoolSize = 5
-	cfg.TestDatabaseGetTimeout = time.Second
+	cfg.TestDatabaseGetTimeout = time.Second * 5
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {

@@ -22,8 +22,9 @@ var (
 type dbState int // Indicates a current DB state.
 
 const (
-	dbStateReady dbState = iota // Initialized according to a template and ready to be picked up.
-	dbStateDirty                // Taken by a client and potentially currently in use.
+	dbStateReady      dbState = iota // Initialized according to a template and ready to be picked up.
+	dbStateDirty                     // Taken by a client and potentially currently in use.
+	dbStateRecreating                // In the process of being recreated (to prevent concurrent cleans)
 )
 
 const minConcurrentTasksNum = 1
@@ -31,14 +32,24 @@ const minConcurrentTasksNum = 1
 type existingDB struct {
 	state dbState
 	db.TestDatabase
+
+	// To prevent auto-cleans of a testdatabase on the dirty channel directly after it was issued as ready,
+	// each testdatabase gets a timestamp assigned after which auto-cleaning it generally allowed (unlock
+	// and recreate do not respect this). This timeout is typically very low and should only be neccessary
+	// to be tweaked in scenarios in which the pool is overloaded by requests.
+	// Prefer to tweak InitialPoolSize (the always ready dbs) and MaxPoolSize instead if you have issues here.
+	blockAutoCleanDirtyUntil time.Time
+
+	// increased after each recreation, useful for sleepy recreating workers to check if we still operate on the same gen.
+	generation uint
 }
 
 type workerTask string
 
 const (
-	workerTaskStop       = "STOP"
-	workerTaskExtend     = "EXTEND"
-	workerTaskCleanDirty = "CLEAN_DIRTY"
+	workerTaskStop           = "STOP"
+	workerTaskExtend         = "EXTEND"
+	workerTaskAutoCleanDirty = "CLEAN_DIRTY"
 )
 
 // HashPool holds a test DB pool for a certain hash. Each HashPool is running cleanup workers in background.
@@ -160,7 +171,10 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 		return
 	}
 
+	// flag as dirty and block auto clean until
 	testDB.state = dbStateDirty
+	testDB.blockAutoCleanDirtyUntil = time.Now().Add(pool.TestDatabaseMinimalLifetime)
+
 	pool.dbs[index] = testDB
 	pool.dirty <- index
 
@@ -170,9 +184,9 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	}
 
 	// we try to ensure that InitialPoolSize count is staying ready
-	// thus, we try to move the oldest dirty dbs into recreating with the workerTaskCleanDirty
+	// thus, we try to move the oldest dirty dbs into recreating with the workerTaskAutoCleanDirty
 	if len(pool.dbs) >= pool.PoolConfig.MaxPoolSize && (len(pool.ready)+len(pool.recreating)) < pool.InitialPoolSize {
-		pool.tasksChan <- workerTaskCleanDirty
+		pool.tasksChan <- workerTaskAutoCleanDirty
 	}
 
 	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
@@ -189,8 +203,8 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 	fmt.Printf("pool#%s: workerTaskLoop\n", pool.templateDB.TemplateHash)
 
 	handlers := map[string]func(ctx context.Context) error{
-		workerTaskExtend:     ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
-		workerTaskCleanDirty: ignoreErrs(pool.cleanDirty, context.Canceled),
+		workerTaskExtend:         ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
+		workerTaskAutoCleanDirty: ignoreErrs(pool.autoCleanDirty, context.Canceled),
 	}
 
 	// to limit the number of running goroutines.
@@ -268,7 +282,7 @@ func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id in
 
 	// check if db is in the correct state
 	testDB := pool.dbs[id]
-	if testDB.state == dbStateReady {
+	if testDB.state != dbStateDirty {
 		return nil
 	}
 
@@ -344,16 +358,21 @@ func (pool *HashPool) recreateDatabaseGracefully(ctx context.Context, id int) er
 		return ctx.Err()
 	}
 
-	pool.RLock()
+	pool.Lock()
 
-	if pool.dbs[id].state == dbStateReady {
+	if pool.dbs[id].state != dbStateDirty {
 		// nothing to do
-		pool.RUnlock()
+		pool.Unlock()
 		return nil
 	}
 
 	testDB := pool.dbs[id]
-	pool.RUnlock()
+
+	// set state recreating...
+	pool.dbs[id].state = dbStateRecreating
+	pool.dbs[id] = testDB
+
+	pool.Unlock()
 
 	pool.recreating <- struct{}{}
 
@@ -410,17 +429,19 @@ MoveToReady:
 		return nil
 	}
 
+	// increase the generation of the testdb (as we just recreated it) and move into ready!
+	pool.dbs[id].generation++
 	pool.dbs[id].state = dbStateReady
-	// pool.dbs[id] = testDB
 
 	pool.ready <- pool.dbs[id].ID
 
 	return nil
 }
 
-// cleanDirty reads 'dirty' channel and cleans up a test DB with the received index.
+// autoCleanDirty reads 'dirty' channel and cleans up a test DB with the received index.
 // When the DB is recreated according to a template, its index goes to the 'ready' channel.
-func (pool *HashPool) cleanDirty(ctx context.Context) error {
+// Note that we generally gurantee FIFO when it comes to auto-cleaning as long as no manual unlock/recreates happen.
+func (pool *HashPool) autoCleanDirty(ctx context.Context) error {
 
 	ctx, task := trace.NewTask(ctx, "worker_clean_dirty")
 	defer task.End()
@@ -432,11 +453,11 @@ func (pool *HashPool) cleanDirty(ctx context.Context) error {
 		return ctx.Err()
 	default:
 		// nothing to do
-		fmt.Println("cleanDirty noop")
+		fmt.Println("autoCleanDirty noop")
 		return nil
 	}
 
-	fmt.Printf("pool#%s: cleanDirty %v\n", pool.templateDB.TemplateHash, id)
+	fmt.Printf("pool#%s: autoCleanDirty id=%v\n", pool.templateDB.TemplateHash, id)
 
 	regLock := trace.StartRegion(ctx, "worker_wait_for_rlock_hash_pool")
 	pool.RLock()
@@ -447,7 +468,32 @@ func (pool *HashPool) cleanDirty(ctx context.Context) error {
 		pool.RUnlock()
 		return ErrInvalidIndex
 	}
-	// testDB := pool.dbs[id]
+
+	blockedUntil := time.Until(pool.dbs[id].blockAutoCleanDirtyUntil)
+	generation := pool.dbs[id].generation
+
+	pool.RUnlock()
+
+	// immediately pass to pool recreate
+	if blockedUntil <= 0 {
+		return pool.recreateDatabaseGracefully(ctx, id)
+	}
+
+	// else we need to wait until we are allowed to work with it!
+	// we block auto-cleaning until we are allowed to...
+	fmt.Printf("pool#%s: autoCleanDirty id=%v sleep for blockedUntil=%v...\n", pool.templateDB.TemplateHash, id, blockedUntil)
+	time.Sleep(blockedUntil)
+
+	// we need to check that the testDB.generation did not change since we slept
+	// (which would indicate that the database was already unlocked/recreated by someone else in the meantime)
+	pool.RLock()
+
+	if pool.dbs[id].generation != generation || pool.dbs[id].state != dbStateDirty {
+		fmt.Printf("pool#%s: autoCleanDirty id=%v bailout old generation=%v vs new generation=%v state=%v...\n", pool.templateDB.TemplateHash, id, generation, pool.dbs[id].generation, pool.dbs[id].state)
+		pool.RUnlock()
+		return nil
+	}
+
 	pool.RUnlock()
 
 	return pool.recreateDatabaseGracefully(ctx, id)

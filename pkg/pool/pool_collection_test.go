@@ -274,7 +274,7 @@ func TestPoolReuseDirty(t *testing.T) {
 	t.Cleanup(func() { p.Stop() })
 
 	getDirty := func(seenIDMap *sync.Map) {
-		newTestDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 1*time.Second)
+		newTestDB1, err := p.GetTestDatabase(ctx, templateDB1.TemplateHash, 3*time.Second)
 		assert.NoError(t, err)
 		seenIDMap.Store(newTestDB1.ID, true)
 	}

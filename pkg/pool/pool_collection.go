@@ -20,6 +20,7 @@ type PoolConfig struct {
 	MaxParallelTasks                  int           // Maximal number of pool tasks running in parallel. Must be a number greater or equal 1.
 	TestDatabaseRetryRecreateSleepMin time.Duration // Minimal time to wait after a test db recreate has failed (e.g. as client is still connected). Subsequent retries multiply this values until...
 	TestDatabaseRetryRecreateSleepMax time.Duration // ... the maximum possible sleep time between retries (e.g. 3 seconds) is reached.
+	TestDatabaseMinimalLifetime       time.Duration // After a testdatabase transitions from ready to dirty, always block auto-recreation for this duration (except manual recreate).
 
 	DisableWorkerAutostart bool // test only flag for starting without background worker task system
 }
