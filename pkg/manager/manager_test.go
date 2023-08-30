@@ -310,8 +310,8 @@ func TestManagerGetTestDatabaseExtendPool(t *testing.T) {
 
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseGetTimeout = 300 * time.Millisecond
-	cfg.TestDatabaseInitialPoolSize = 0 // this will be autotransformed to 1 during init
-	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.PoolConfig.InitialPoolSize = 0 // this will be autotransformed to 1 during init
+	cfg.PoolConfig.MaxPoolSize = 10
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -335,7 +335,7 @@ func TestManagerGetTestDatabaseExtendPool(t *testing.T) {
 
 	previousID := -1
 	// assert than one by one pool will be extended
-	for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
+	for i := 0; i < cfg.PoolConfig.MaxPoolSize; i++ {
 		testDB, err := m.GetTestDatabase(ctx, hash)
 		assert.NoError(t, err)
 		assert.Equal(t, previousID+1, testDB.ID)
@@ -606,8 +606,8 @@ func TestManagerGetAndReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 3
-	cfg.TestDatabaseMaxPoolSize = 3
+	cfg.PoolConfig.InitialPoolSize = 3
+	cfg.PoolConfig.MaxPoolSize = 3
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
@@ -631,7 +631,7 @@ func TestManagerGetAndReturnTestDatabase(t *testing.T) {
 	}
 
 	// request many more databases than initally added
-	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*3; i++ {
+	for i := 0; i <= cfg.PoolConfig.MaxPoolSize*3; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, test)
@@ -648,9 +648,9 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 4
-	cfg.TestDatabaseMaxPoolSize = 8
-	cfg.TestDatabaseGetTimeout = 250 * time.Millisecond
+	cfg.PoolConfig.InitialPoolSize = 4
+	cfg.PoolConfig.MaxPoolSize = 8
+	cfg.TestDatabaseGetTimeout = 500 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -673,7 +673,7 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	}
 
 	// request many more databases than initally added
-	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*2; i++ {
+	for i := 0; i <= cfg.PoolConfig.MaxPoolSize*2; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
 
 		t.Logf("open %v", test.ID)
@@ -712,8 +712,8 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 5
-	cfg.TestDatabaseMaxPoolSize = 5
+	cfg.PoolConfig.InitialPoolSize = 5
+	cfg.PoolConfig.MaxPoolSize = 5
 	cfg.TestDatabaseGetTimeout = time.Second
 	m, _ := testManagerWithConfig(cfg)
 
@@ -737,7 +737,7 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < cfg.TestDatabaseMaxPoolSize*5; i++ {
+	for i := 0; i < cfg.PoolConfig.MaxPoolSize*5; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -782,8 +782,8 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 1
-	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.PoolConfig.InitialPoolSize = 1
+	cfg.PoolConfig.MaxPoolSize = 10
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 
 	m, _ := testManagerWithConfig(cfg)
@@ -878,7 +878,7 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 	}
 
 	id := 321
-	dbName := fmt.Sprintf("%s_%s_%s_%d", config.DatabasePrefix, config.TestDatabasePrefix, hash, id)
+	dbName := fmt.Sprintf("%s_%s_%s_%d", config.DatabasePrefix, config.PoolConfig.TestDBNamePrefix, hash, id)
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		t.Fatalf("failed to manually drop template database %q: %v", dbName, err)
@@ -981,7 +981,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 
 	cfg := manager.DefaultManagerConfigFromEnv()
 	// there are no db added in background
-	cfg.TestDatabaseInitialPoolSize = 0
+	cfg.PoolConfig.InitialPoolSize = 0
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {

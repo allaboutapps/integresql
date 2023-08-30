@@ -14,11 +14,14 @@ import (
 var ErrUnknownHash = errors.New("no database pool exists for this hash")
 
 type PoolConfig struct {
-	MaxPoolSize            int
-	InitialPoolSize        int
-	TestDBNamePrefix       string
-	PoolMaxParallelTasks   int
-	DisableWorkerAutostart bool
+	InitialPoolSize                   int           // Initial number of ready DBs prepared in background
+	MaxPoolSize                       int           // Maximal pool size that won't be exceeded
+	TestDBNamePrefix                  string        // Test-Database prefix: DatabasePrefix_TestDBNamePrefix_HASH_ID
+	MaxParallelTasks                  int           // Maximal number of pool tasks running in parallel. Must be a number greater or equal 1.
+	TestDatabaseRetryRecreateSleepMin time.Duration // Minimal time to wait after a test db recreate has failed (e.g. as client is still connected). Subsequent retries multiply this values until...
+	TestDatabaseRetryRecreateSleepMax time.Duration // ... the maximum possible sleep time between retries (e.g. 3 seconds) is reached.
+
+	DisableWorkerAutostart bool // test only flag for starting without background worker task system
 }
 
 type PoolCollection struct {

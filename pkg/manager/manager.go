@@ -37,9 +37,11 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 	if config.DatabasePrefix != "" {
 		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.DatabasePrefix)
 	}
-	if config.TestDatabasePrefix != "" {
-		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.TestDatabasePrefix)
+	if config.PoolConfig.TestDBNamePrefix != "" {
+		testDBPrefix = testDBPrefix + fmt.Sprintf("%s_", config.PoolConfig.TestDBNamePrefix)
 	}
+
+	config.PoolConfig.TestDBNamePrefix = testDBPrefix
 
 	if len(config.TestDatabaseOwner) == 0 {
 		config.TestDatabaseOwner = config.ManagerDatabaseConfig.Username
@@ -50,30 +52,23 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 	}
 
 	// at least one test database needs to be present initially
-	if config.TestDatabaseInitialPoolSize == 0 {
-		config.TestDatabaseInitialPoolSize = 1
+	if config.PoolConfig.InitialPoolSize == 0 {
+		config.PoolConfig.InitialPoolSize = 1
 	}
 
-	if config.TestDatabaseInitialPoolSize > config.TestDatabaseMaxPoolSize && config.TestDatabaseMaxPoolSize > 0 {
-		config.TestDatabaseInitialPoolSize = config.TestDatabaseMaxPoolSize
+	if config.PoolConfig.InitialPoolSize > config.PoolConfig.MaxPoolSize && config.PoolConfig.MaxPoolSize > 0 {
+		config.PoolConfig.InitialPoolSize = config.PoolConfig.MaxPoolSize
 	}
 
-	if config.PoolMaxParallelTasks < 1 {
-		config.PoolMaxParallelTasks = 1
+	if config.PoolConfig.MaxParallelTasks < 1 {
+		config.PoolConfig.MaxParallelTasks = 1
 	}
 
 	m := &Manager{
 		config:    config,
 		db:        nil,
 		templates: templates.NewCollection(),
-		pool: pool.NewPoolCollection(
-			pool.PoolConfig{
-				MaxPoolSize:          config.TestDatabaseMaxPoolSize,
-				InitialPoolSize:      config.TestDatabaseInitialPoolSize,
-				TestDBNamePrefix:     testDBPrefix,
-				PoolMaxParallelTasks: config.PoolMaxParallelTasks,
-			},
-		),
+		pool:      pool.NewPoolCollection(config.PoolConfig),
 	}
 
 	return m, m.config
@@ -139,7 +134,7 @@ func (m *Manager) Initialize(ctx context.Context) error {
 		}
 	}
 
-	rows, err := m.db.QueryContext(ctx, "SELECT datname FROM pg_database WHERE datname LIKE $1", fmt.Sprintf("%s_%s_%%", m.config.DatabasePrefix, m.config.TestDatabasePrefix))
+	rows, err := m.db.QueryContext(ctx, "SELECT datname FROM pg_database WHERE datname LIKE $1", fmt.Sprintf("%s_%s_%%", m.config.DatabasePrefix, m.config.PoolConfig.TestDBNamePrefix))
 	if err != nil {
 		return err
 	}

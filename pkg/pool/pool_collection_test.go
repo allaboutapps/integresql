@@ -18,7 +18,7 @@ func TestPoolAddGet(t *testing.T) {
 	ctx := context.Background()
 	cfg := pool.PoolConfig{
 		MaxPoolSize:            2,
-		PoolMaxParallelTasks:   4,
+		MaxParallelTasks:       4,
 		TestDBNamePrefix:       "prefix_",
 		DisableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
 	}
@@ -94,10 +94,10 @@ func TestPoolAddGetConcurrent(t *testing.T) {
 
 	maxPoolSize := 15
 	cfg := pool.PoolConfig{
-		MaxPoolSize:          maxPoolSize,
-		InitialPoolSize:      maxPoolSize,
-		PoolMaxParallelTasks: 4,
-		TestDBNamePrefix:     "",
+		MaxPoolSize:      maxPoolSize,
+		InitialPoolSize:  maxPoolSize,
+		MaxParallelTasks: 4,
+		TestDBNamePrefix: "",
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })
@@ -149,9 +149,9 @@ func TestPoolAddGetReturnConcurrent(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:          40,
-		PoolMaxParallelTasks: 4,
-		TestDBNamePrefix:     "",
+		MaxPoolSize:      40,
+		MaxParallelTasks: 4,
+		TestDBNamePrefix: "",
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })
@@ -212,8 +212,8 @@ func TestPoolRemoveAll(t *testing.T) {
 	}
 
 	cfg := pool.PoolConfig{
-		MaxPoolSize:          6,
-		PoolMaxParallelTasks: 4,
+		MaxPoolSize:      6,
+		MaxParallelTasks: 4,
 	}
 	p := pool.NewPoolCollection(cfg)
 	t.Cleanup(func() { p.Stop() })
@@ -263,10 +263,10 @@ func TestPoolReuseDirty(t *testing.T) {
 
 	maxPoolSize := 40
 	cfg := pool.PoolConfig{
-		MaxPoolSize:          maxPoolSize,
-		InitialPoolSize:      maxPoolSize,
-		PoolMaxParallelTasks: 1,
-		TestDBNamePrefix:     "test_",
+		MaxPoolSize:      maxPoolSize,
+		InitialPoolSize:  maxPoolSize,
+		MaxParallelTasks: 1,
+		TestDBNamePrefix: "test_",
 	}
 	p := pool.NewPoolCollection(cfg)
 
@@ -323,7 +323,7 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 
 	cfg := pool.PoolConfig{
 		MaxPoolSize:            10,
-		PoolMaxParallelTasks:   3,
+		MaxParallelTasks:       3,
 		DisableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
 	}
 	p := pool.NewPoolCollection(cfg)

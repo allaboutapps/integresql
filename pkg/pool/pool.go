@@ -64,8 +64,8 @@ type HashPool struct {
 // Starts the workers to extend the pool in background up to requested inital number.
 func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *HashPool {
 
-	if cfg.PoolMaxParallelTasks < minConcurrentTasksNum {
-		cfg.PoolMaxParallelTasks = minConcurrentTasksNum
+	if cfg.MaxParallelTasks < minConcurrentTasksNum {
+		cfg.MaxParallelTasks = minConcurrentTasksNum
 	}
 
 	pool := &HashPool{
@@ -184,7 +184,7 @@ func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Databas
 	return pool.extend(ctx)
 }
 
-func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, poolMaxParallelTasks int) {
+func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, MaxParallelTasks int) {
 
 	fmt.Printf("pool#%s: workerTaskLoop\n", pool.templateDB.TemplateHash)
 
@@ -194,7 +194,7 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 	}
 
 	// to limit the number of running goroutines.
-	var semaphore = make(chan struct{}, poolMaxParallelTasks)
+	var semaphore = make(chan struct{}, MaxParallelTasks)
 
 	for task := range taskChan {
 		handler, ok := handlers[task]
@@ -238,7 +238,7 @@ func (pool *HashPool) controlLoop(ctx context.Context, cancel context.CancelFunc
 	pool.wg.Add(1)
 	go func() {
 		defer pool.wg.Done()
-		pool.workerTaskLoop(ctx, workerTasksChan, pool.PoolMaxParallelTasks)
+		pool.workerTaskLoop(ctx, workerTasksChan, pool.MaxParallelTasks)
 	}()
 
 	for task := range pool.tasksChan {
@@ -361,21 +361,31 @@ func (pool *HashPool) recreateDatabaseGracefully(ctx context.Context, id int) er
 		<-pool.recreating
 	}()
 
+	try := 0
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			fmt.Printf("recreateDatabaseGracefully: recreating ID='%v'...\n", id)
+			try++
+
+			fmt.Printf("recreateDatabaseGracefully: recreating ID='%v' try=%v...\n", id, try)
 			err := pool.recreateDB(ctx, &testDB)
 			if err != nil {
-				fmt.Println(err)
+				// only still connected errors are worthy a retry
 				if errors.Is(err, ErrTestDBInUse) {
-					fmt.Printf("recreateDatabaseGracefully: DB is still in use, will retry ID='%v'.\n", id)
-					time.Sleep(250 * time.Millisecond) // TODO make configurable and/or exponential retry backoff...
+
+					backoff := time.Duration(try) * pool.PoolConfig.TestDatabaseRetryRecreateSleepMin
+					if backoff > pool.PoolConfig.TestDatabaseRetryRecreateSleepMax {
+						backoff = pool.PoolConfig.TestDatabaseRetryRecreateSleepMax
+					}
+
+					fmt.Printf("recreateDatabaseGracefully: DB is still in use, will retry ID='%v' try=%v in backoff=%v.\n", id, try, backoff)
+					time.Sleep(backoff)
 				} else {
-					fmt.Printf("recreateDatabaseGracefully: db error while cleanup ID='%v' err=%v\n", id, err)
-					return nil // noop
+					fmt.Printf("recreateDatabaseGracefully: bailout worker task DB error while cleanup ID='%v' try=%v err=%v\n", id, try, err)
+					return err
 				}
 			} else {
 				goto MoveToReady
