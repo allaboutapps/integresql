@@ -41,7 +41,7 @@ func NewTemplate(hash string, config TemplateConfig) *Template {
 	return t
 }
 
-func (t *Template) GetConfig(ctx context.Context) TemplateConfig {
+func (t *Template) GetConfig(_ context.Context) TemplateConfig {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
@@ -49,7 +49,7 @@ func (t *Template) GetConfig(ctx context.Context) TemplateConfig {
 }
 
 // GetState locks the template and checks its state.
-func (t *Template) GetState(ctx context.Context) TemplateState {
+func (t *Template) GetState(_ context.Context) TemplateState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
@@ -94,18 +94,18 @@ func (t *Template) WaitUntilFinalized(ctx context.Context, timeout time.Duration
 
 // GetStateWithLock gets the current state leaving the template locked.
 // REMEMBER to unlock it when you no longer need it locked.
-func (t *Template) GetStateWithLock(ctx context.Context) (TemplateState, lockedTemplate) {
+func (t *Template) GetStateWithLock(_ context.Context) (TemplateState, LockedTemplate) {
 	t.mutex.Lock()
 
-	return t.state, lockedTemplate{t: t}
+	return t.state, LockedTemplate{t: t}
 }
 
-type lockedTemplate struct {
+type LockedTemplate struct {
 	t *Template
 }
 
 // Unlock releases the locked template.
-func (l *lockedTemplate) Unlock() {
+func (l *LockedTemplate) Unlock() {
 	if l.t != nil {
 		l.t.mutex.Unlock()
 		l.t = nil
@@ -113,7 +113,7 @@ func (l *lockedTemplate) Unlock() {
 }
 
 // SetState sets a new state of the locked template (without acquiring the lock again).
-func (l lockedTemplate) SetState(ctx context.Context, newState TemplateState) {
+func (l LockedTemplate) SetState(_ context.Context, newState TemplateState) {
 	if l.t.state == newState {
 		return
 	}

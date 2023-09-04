@@ -66,7 +66,7 @@ type HashPool struct {
 	sync.RWMutex
 	wg sync.WaitGroup
 
-	tasksChan     chan string
+	tasksChan     chan workerTask
 	running       bool
 	workerContext context.Context // the ctx all background workers will receive (nil if not yet started)
 }
@@ -89,7 +89,7 @@ func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFu
 		templateDB: templateDB,
 		PoolConfig: cfg,
 
-		tasksChan: make(chan string, cfg.MaxPoolSize+1),
+		tasksChan: make(chan workerTask, cfg.MaxPoolSize+1),
 		running:   false,
 	}
 
@@ -194,15 +194,11 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	return testDB.TestDatabase, nil
 }
 
-func (pool *HashPool) AddTestDatabase(ctx context.Context, templateDB db.Database) error {
-	return pool.extend(ctx)
-}
-
-func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string, MaxParallelTasks int) {
+func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan workerTask, MaxParallelTasks int) {
 
 	fmt.Printf("pool#%s: workerTaskLoop\n", pool.templateDB.TemplateHash)
 
-	handlers := map[string]func(ctx context.Context) error{
+	handlers := map[workerTask]func(ctx context.Context) error{
 		workerTaskExtend:         ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
 		workerTaskAutoCleanDirty: ignoreErrs(pool.autoCleanDirty, context.Canceled),
 	}
@@ -224,7 +220,7 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan string
 		}
 
 		pool.wg.Add(1)
-		go func(task string) {
+		go func(task workerTask) {
 
 			defer func() {
 				pool.wg.Done()
@@ -248,7 +244,7 @@ func (pool *HashPool) controlLoop(ctx context.Context, cancel context.CancelFunc
 	// ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	workerTasksChan := make(chan string, len(pool.tasksChan))
+	workerTasksChan := make(chan workerTask, len(pool.tasksChan))
 	pool.wg.Add(1)
 	go func() {
 		defer pool.wg.Done()
@@ -272,9 +268,14 @@ func (pool *HashPool) controlLoop(ctx context.Context, cancel context.CancelFunc
 }
 
 // ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).
-func (pool *HashPool) ReturnTestDatabase(ctx context.Context, hash string, id int) error {
+func (pool *HashPool) ReturnTestDatabase(ctx context.Context, id int) error {
 	pool.Lock()
 	defer pool.Unlock()
+
+	if ctx.Err() != nil {
+		// client vanished
+		return ctx.Err()
+	}
 
 	if id < 0 || id >= len(pool.dbs) {
 		return ErrInvalidIndex
@@ -330,7 +331,7 @@ func (pool *HashPool) excludeIDFromDirtyChannel(id int) {
 }
 
 // RecreateTestDatabase prioritizes the test DB to be recreated next via the dirty worker.
-func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id int) error {
+func (pool *HashPool) RecreateTestDatabase(ctx context.Context, id int) error {
 
 	pool.RLock()
 	if id < 0 || id >= len(pool.dbs) {
@@ -341,10 +342,17 @@ func (pool *HashPool) RecreateTestDatabase(ctx context.Context, hash string, id 
 	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (RecreateTestDatabase %v)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize, id)
 	pool.RUnlock()
 
+	if ctx.Err() != nil {
+		// client vanished
+		return ctx.Err()
+	}
+
 	// exclude from the normal dirty channel, force recreation in a background worker...
 	pool.excludeIDFromDirtyChannel(id)
 
 	// directly spawn a new worker in the bg (with the same ctx as the typical workers)
+	// note that this runs unchained, meaning we do not care about errors that may happen via this bg task
+	//nolint:errcheck
 	go pool.recreateDatabaseGracefully(pool.workerContext, id)
 
 	return nil

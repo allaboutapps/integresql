@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,10 +12,14 @@ import (
 	"time"
 
 	"github.com/allaboutapps/integresql/internal/api"
+	"github.com/allaboutapps/integresql/internal/config"
 	"github.com/allaboutapps/integresql/internal/router"
 )
 
 func main() {
+
+	fmt.Println(config.GetFormattedBuildArgs())
+
 	s := api.DefaultServerFromEnv()
 
 	if err := s.InitManager(context.Background()); err != nil {
@@ -35,7 +41,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := s.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
+	if err := s.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("Failed to gracefully shut down server: %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package templates
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -33,14 +34,14 @@ func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 
 		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash)
 		if err != nil {
-			switch err {
-			case manager.ErrManagerNotReady:
+			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateAlreadyInitialized:
+			} else if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 				return echo.NewHTTPError(http.StatusLocked, "template is already initialized")
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+
+			// default 500
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, &template)
@@ -55,17 +56,17 @@ func putFinalizeTemplate(s *api.Server) echo.HandlerFunc {
 		defer cancel()
 
 		if _, err := s.Manager.FinalizeTemplateDatabase(ctx, hash); err != nil {
-			switch err {
-			case manager.ErrTemplateAlreadyInitialized:
+			if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 				// template is initialized, we ignore this error
 				return c.NoContent(http.StatusNoContent)
-			case manager.ErrManagerNotReady:
+			} else if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateNotFound:
+			} else if errors.Is(err, manager.ErrTemplateNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+
+			// default 500
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		return c.NoContent(http.StatusNoContent)
@@ -80,14 +81,14 @@ func deleteDiscardTemplate(s *api.Server) echo.HandlerFunc {
 		defer cancel()
 
 		if err := s.Manager.DiscardTemplateDatabase(ctx, hash); err != nil {
-			switch err {
-			case manager.ErrManagerNotReady:
+			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateNotFound:
+			} else if errors.Is(err, manager.ErrTemplateNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+
+			// default 500
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		return c.NoContent(http.StatusNoContent)
@@ -103,24 +104,24 @@ func getTestDatabase(s *api.Server) echo.HandlerFunc {
 
 		test, err := s.Manager.GetTestDatabase(ctx, hash)
 		if err != nil {
-			switch err {
-			case manager.ErrManagerNotReady:
+
+			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateNotFound:
+			} else if errors.Is(err, manager.ErrTemplateNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			case manager.ErrTemplateDiscarded:
+			} else if errors.Is(err, manager.ErrTemplateDiscarded) {
 				return echo.NewHTTPError(http.StatusGone, "template was just discarded")
-			case pool.ErrPoolFull:
-				return echo.NewHTTPError(http.StatusInsufficientStorage, "pool is full and can't be extended")
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+
+			// default 500
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, &test)
 	}
 }
 
+// deprecated
 func deleteReturnTestDatabase(s *api.Server) echo.HandlerFunc {
 	return postUnlockTestDatabase(s)
 }
@@ -137,18 +138,18 @@ func postUnlockTestDatabase(s *api.Server) echo.HandlerFunc {
 		defer cancel()
 
 		if err := s.Manager.ReturnTestDatabase(ctx, hash, id); err != nil {
-			switch err {
-			case manager.ErrManagerNotReady:
+			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateNotFound:
+			} else if errors.Is(err, manager.ErrTemplateNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			case manager.ErrTestNotFound:
+			} else if errors.Is(err, manager.ErrTestNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
-			case pool.ErrTestDBInUse:
+			} else if errors.Is(err, pool.ErrTestDBInUse) {
 				return echo.NewHTTPError(http.StatusLocked, pool.ErrTestDBInUse.Error())
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+
+			// default 500
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		return c.NoContent(http.StatusNoContent)
@@ -164,18 +165,19 @@ func postRecreateTestDatabase(s *api.Server) echo.HandlerFunc {
 		}
 
 		if err := s.Manager.RecreateTestDatabase(c.Request().Context(), hash, id); err != nil {
-			switch err {
-			case manager.ErrManagerNotReady:
+
+			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
-			case manager.ErrTemplateNotFound:
+			} else if errors.Is(err, manager.ErrTemplateNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "template not found")
-			case manager.ErrTestNotFound:
+			} else if errors.Is(err, manager.ErrTestNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, "test database not found")
-			case pool.ErrTestDBInUse:
+			} else if errors.Is(err, pool.ErrTestDBInUse) {
 				return echo.NewHTTPError(http.StatusLocked, pool.ErrTestDBInUse.Error())
-			default:
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+
+			// default 500
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		return c.NoContent(http.StatusNoContent)

@@ -9,7 +9,8 @@ import (
 	"github.com/allaboutapps/integresql/pkg/util"
 )
 
-type ManagerConfig struct {
+// we explicitly want to access this struct via manager.ManagerConfig, thus we disable revive for the next line
+type ManagerConfig struct { //nolint:revive
 	ManagerDatabaseConfig    db.DatabaseConfig
 	TemplateDatabaseTemplate string
 

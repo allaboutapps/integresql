@@ -98,7 +98,7 @@ func (m *Manager) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
+func (m *Manager) Disconnect(_ context.Context, ignoreCloseError bool) error {
 	if m.db == nil {
 		return errors.New("manager is not connected")
 	}
@@ -398,25 +398,7 @@ func (m Manager) ResetAllTracking(ctx context.Context) error {
 	// remove all templates to disallow any new test DB creation from existing templates
 	m.templates.RemoveAll(ctx)
 
-	if err := m.pool.RemoveAll(ctx, m.dropTestPoolDB); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m Manager) dropDatabaseWithID(ctx context.Context, hash string, id int) error {
-	dbName := m.pool.MakeDBName(hash, id)
-	exists, err := m.checkDatabaseExists(ctx, dbName)
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		return ErrTestNotFound
-	}
-
-	return m.dropDatabase(ctx, dbName)
+	return m.pool.RemoveAll(ctx, m.dropTestPoolDB)
 }
 
 func (m Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool, error) {

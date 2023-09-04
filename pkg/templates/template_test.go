@@ -2,7 +2,6 @@ package templates_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -48,7 +47,7 @@ func TestForReady(t *testing.T) {
 			timeout := 1 * time.Second
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateFinalized {
-				errsChan <- errors.New(fmt.Sprintf("expected state %v (finalized), but is %v", templates.TemplateStateFinalized, state))
+				errsChan <- fmt.Errorf("expected state %v (finalized), but is %v", templates.TemplateStateFinalized, state)
 			}
 		}()
 	}
@@ -61,7 +60,7 @@ func TestForReady(t *testing.T) {
 			timeout := 30 * time.Millisecond
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateInit {
-				errsChan <- errors.New(fmt.Sprintf("expected state %v (init), but is %v", templates.TemplateStateInit, state))
+				errsChan <- fmt.Errorf("expected state %v (init), but is %v", templates.TemplateStateInit, state)
 			}
 		}()
 	}

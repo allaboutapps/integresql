@@ -81,7 +81,7 @@ func (tc *Collection) Get(ctx context.Context, hash string) (template *Template,
 }
 
 // RemoveUnsafe removes the template and can be called ONLY IF THE COLLECTION IS LOCKED.
-func (tc *Collection) RemoveUnsafe(ctx context.Context, hash string) {
+func (tc *Collection) RemoveUnsafe(_ context.Context, hash string) {
 	delete(tc.templates, hash)
 }
 

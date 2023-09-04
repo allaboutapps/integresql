@@ -17,5 +17,5 @@ func Retry(attempts int, sleep time.Duration, f func() error) error {
 		time.Sleep(sleep)
 	}
 
-	return fmt.Errorf("failing after %d attempts, lat error: %v", attempts, err)
+	return fmt.Errorf("failing after %d attempts, lat error: %w", attempts, err)
 }

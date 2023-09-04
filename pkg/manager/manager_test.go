@@ -129,7 +129,7 @@ func TestManagerInitializeTemplateDatabaseTimeout(t *testing.T) {
 	defer cancel()
 
 	_, err := m.InitializeTemplateDatabase(ctxt, hash)
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("received unexpected error, got %v, want %v", err, context.DeadlineExceeded)
 	}
 }
@@ -173,7 +173,7 @@ func TestManagerInitializeTemplateDatabaseConcurrently(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			if err == manager.ErrTemplateAlreadyInitialized {
+			if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 				failed++
 			} else {
 				errored++
@@ -384,7 +384,10 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 		return nil
 	})
 
-	g.Wait()
+	if err := g.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
 	first := <-testCh
 	assert.Equal(t, "FINALIZE", first)
 }
