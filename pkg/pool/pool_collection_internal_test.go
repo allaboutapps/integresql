@@ -19,7 +19,7 @@ func TestPoolAddGet(t *testing.T) {
 		MaxPoolSize:            2,
 		MaxParallelTasks:       4,
 		TestDBNamePrefix:       "prefix_",
-		DisableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
+		disableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
 	}
 	p := NewPoolCollection(cfg)
 
@@ -323,7 +323,7 @@ func TestPoolReturnTestDatabase(t *testing.T) {
 	cfg := PoolConfig{
 		MaxPoolSize:            10,
 		MaxParallelTasks:       3,
-		DisableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
+		disableWorkerAutostart: true, // no extend / cleanDirty tasks should run automatically!
 	}
 	p := NewPoolCollection(cfg)
 

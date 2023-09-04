@@ -23,7 +23,7 @@ type PoolConfig struct { //nolint:revive
 	TestDatabaseRetryRecreateSleepMax time.Duration // ... the maximum possible sleep time between retries (e.g. 3 seconds) is reached.
 	TestDatabaseMinimalLifetime       time.Duration // After a testdatabase transitions from ready to dirty, always block auto-recreation for this duration (except manual recreate).
 
-	DisableWorkerAutostart bool // test only flag for starting without background worker task system
+	disableWorkerAutostart bool // test only private flag for starting without background worker task system
 }
 
 // we explicitly want to access this struct via pool.PoolCollection, thus we disable revive for the next line
@@ -67,7 +67,7 @@ func (p *PoolCollection) InitHashPool(_ context.Context, templateDB db.Database,
 	// Create a new HashPool
 	pool := NewHashPool(cfg, templateDB, initDBFunc)
 
-	if !cfg.DisableWorkerAutostart {
+	if !cfg.disableWorkerAutostart {
 		pool.Start()
 	}
 
