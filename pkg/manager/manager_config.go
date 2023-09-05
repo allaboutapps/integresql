@@ -11,13 +11,13 @@ import (
 
 // we explicitly want to access this struct via manager.ManagerConfig, thus we disable revive for the next line
 type ManagerConfig struct { //nolint:revive
-	ManagerDatabaseConfig    db.DatabaseConfig
+	ManagerDatabaseConfig    db.DatabaseConfig `json:"-"` // sensitive
 	TemplateDatabaseTemplate string
 
 	DatabasePrefix            string
 	TemplateDatabasePrefix    string
 	TestDatabaseOwner         string
-	TestDatabaseOwnerPassword string
+	TestDatabaseOwnerPassword string        `json:"-"` // sensitive
 	TemplateFinalizeTimeout   time.Duration // Time to wait for a template to transition into the 'finalized' state
 	TestDatabaseGetTimeout    time.Duration // Time to wait for a ready database
 

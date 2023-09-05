@@ -105,7 +105,7 @@ func (p *PoolCollection) GetTestDatabase(ctx context.Context, hash string, timeo
 		return db, err
 	}
 
-	return pool.GetTestDatabase(ctx, hash, timeout)
+	return pool.GetTestDatabase(ctx, timeout)
 }
 
 // ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).

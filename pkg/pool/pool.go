@@ -3,12 +3,13 @@ package pool
 import (
 	"context"
 	"errors"
-	"fmt"
 	"runtime/trace"
 	"sync"
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/util"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -26,8 +27,6 @@ const (
 	dbStateDirty                     // Taken by a client and potentially currently in use.
 	dbStateRecreating                // In the process of being recreated (to prevent concurrent cleans)
 )
-
-const minConcurrentTasksNum = 1
 
 type existingDB struct {
 	state dbState
@@ -75,10 +74,6 @@ type HashPool struct {
 // Starts the workers to extend the pool in background up to requested inital number.
 func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFunc) *HashPool {
 
-	if cfg.MaxParallelTasks < minConcurrentTasksNum {
-		cfg.MaxParallelTasks = minConcurrentTasksNum
-	}
-
 	pool := &HashPool{
 		dbs:        make([]existingDB, 0, cfg.MaxPoolSize),
 		ready:      make(chan int, cfg.MaxPoolSize),
@@ -97,10 +92,15 @@ func NewHashPool(cfg PoolConfig, templateDB db.Database, initDBFunc RecreateDBFu
 }
 
 func (pool *HashPool) Start() {
+
+	log := pool.getPoolLogger(context.Background(), "Start")
 	pool.Lock()
+	log.Debug().Msg("starting...")
+
 	defer pool.Unlock()
 
 	if pool.running {
+		log.Warn().Msg("bailout already running!")
 		return
 	}
 
@@ -118,11 +118,18 @@ func (pool *HashPool) Start() {
 		defer pool.wg.Done()
 		pool.controlLoop(ctx, cancel)
 	}()
+
+	log.Info().Msg("started!")
 }
 
 func (pool *HashPool) Stop() {
+
+	log := pool.getPoolLogger(context.Background(), "Stop")
+	log.Debug().Msg("stopping...")
+
 	pool.Lock()
 	if !pool.running {
+		log.Warn().Msg("bailout already stopped!")
 		return
 	}
 	pool.running = false
@@ -131,24 +138,29 @@ func (pool *HashPool) Stop() {
 	pool.tasksChan <- workerTaskStop
 	pool.wg.Wait()
 	pool.workerContext = nil
+	log.Warn().Msg("stopped!")
 }
 
-func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout time.Duration) (db db.TestDatabase, err error) {
+func (pool *HashPool) GetTestDatabase(ctx context.Context, timeout time.Duration) (db db.TestDatabase, err error) {
 	var index int
 
-	fmt.Printf("pool#%s: waiting for ready ID...\n", hash)
+	log := pool.getPoolLogger(ctx, "GetTestDatabase")
+	log.Trace().Msg("waiting for ready ID...")
 
 	select {
 	case <-time.After(timeout):
 		err = ErrTimeout
+		log.Error().Err(err).Dur("timeout", timeout).Msg("timeout")
 		return
 	case <-ctx.Done():
 		err = ctx.Err()
+		log.Warn().Err(err).Msg("ctx done")
 		return
 	case index = <-pool.ready:
 	}
 
-	fmt.Printf("pool#%s: got ready ID=%v\n", hash, index)
+	log = log.With().Int("id", index).Logger()
+	log.Trace().Msg("got ready testdatabase!")
 
 	reg := trace.StartRegion(ctx, "wait_for_lock_hash_pool")
 	pool.Lock()
@@ -158,16 +170,15 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	// sanity check, should never happen
 	if index < 0 || index >= len(pool.dbs) {
 		err = ErrInvalidIndex
+		log.Error().Err(err).Int("dbs", len(pool.dbs)).Msg("index out of bounds!")
 		return
 	}
 
 	testDB := pool.dbs[index]
 	// sanity check, should never happen - we got this index from 'ready' channel
 	if testDB.state != dbStateReady {
-
-		fmt.Printf("pool#%s: GetTestDatabase ErrInvalidState ID=%v\n", hash, index)
-
 		err = ErrInvalidState
+		log.Error().Err(err).Msgf("testdatabase is not in ready state=%v!", testDB.state)
 		return
 	}
 
@@ -179,24 +190,26 @@ func (pool *HashPool) GetTestDatabase(ctx context.Context, hash string, timeout 
 	pool.dirty <- index
 
 	if len(pool.dbs) < pool.PoolConfig.MaxPoolSize {
-		fmt.Printf("pool#%s: Conditional extend\n", hash)
+		log.Trace().Msg("push workerTaskExtend")
 		pool.tasksChan <- workerTaskExtend
 	}
 
 	// we try to ensure that InitialPoolSize count is staying ready
 	// thus, we try to move the oldest dirty dbs into recreating with the workerTaskAutoCleanDirty
 	if len(pool.dbs) >= pool.PoolConfig.MaxPoolSize && (len(pool.ready)+len(pool.recreating)) < pool.InitialPoolSize {
+		log.Trace().Msg("push workerTaskAutoCleanDirty")
 		pool.tasksChan <- workerTaskAutoCleanDirty
 	}
 
-	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (GetTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
+	pool.unsafeTraceLogStats(log)
 
 	return testDB.TestDatabase, nil
 }
 
 func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan workerTask, MaxParallelTasks int) {
 
-	fmt.Printf("pool#%s: workerTaskLoop\n", pool.templateDB.TemplateHash)
+	log := pool.getPoolLogger(ctx, "workerTaskLoop")
+	log.Debug().Msg("starting...")
 
 	handlers := map[workerTask]func(ctx context.Context) error{
 		workerTaskExtend:         ignoreErrs(pool.extend, ErrPoolFull, context.Canceled),
@@ -209,12 +222,13 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan worker
 	for task := range taskChan {
 		handler, ok := handlers[task]
 		if !ok {
-			fmt.Printf("invalid task: %s", task)
+			log.Error().Msgf("invalid task: %s", task)
 			continue
 		}
 
 		select {
 		case <-ctx.Done():
+			log.Warn().Err(ctx.Err()).Msg("ctx done!")
 			return
 		case semaphore <- struct{}{}:
 		}
@@ -227,10 +241,10 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan worker
 				<-semaphore
 			}()
 
-			fmt.Printf("pool#%s: workerTaskLoop task=%v\n", pool.templateDB.TemplateHash, task)
+			log.Debug().Msgf("task=%v", task)
 
 			if err := handler(ctx); err != nil {
-				fmt.Printf("pool#%s: workerTaskLoop task=%v FAILED! err=%v\n", pool.templateDB.TemplateHash, task, err.Error())
+				log.Error().Err(err).Msgf("task=%v FAILED!", task)
 			}
 		}(task)
 
@@ -239,9 +253,9 @@ func (pool *HashPool) workerTaskLoop(ctx context.Context, taskChan <-chan worker
 
 func (pool *HashPool) controlLoop(ctx context.Context, cancel context.CancelFunc) {
 
-	fmt.Printf("pool#%s: controlLoop\n", pool.templateDB.TemplateHash)
+	log := pool.getPoolLogger(ctx, "controlLoop")
+	log.Debug().Msg("starting...")
 
-	// ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	workerTasksChan := make(chan workerTask, len(pool.tasksChan))
@@ -253,6 +267,7 @@ func (pool *HashPool) controlLoop(ctx context.Context, cancel context.CancelFunc
 
 	for task := range pool.tasksChan {
 		if task == workerTaskStop {
+			log.Debug().Msg("stopping...")
 			close(workerTasksChan)
 			cancel()
 			return
@@ -269,21 +284,28 @@ func (pool *HashPool) controlLoop(ctx context.Context, cancel context.CancelFunc
 
 // ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).
 func (pool *HashPool) ReturnTestDatabase(ctx context.Context, id int) error {
+
+	log := pool.getPoolLogger(ctx, "ReturnTestDatabase").With().Int("id", id).Logger()
+	log.Debug().Msg("returning...")
+
 	pool.Lock()
 	defer pool.Unlock()
 
-	if ctx.Err() != nil {
+	if err := ctx.Err(); err != nil {
 		// client vanished
-		return ctx.Err()
+		log.Warn().Err(err).Msg("bailout client vanished!")
+		return err
 	}
 
 	if id < 0 || id >= len(pool.dbs) {
+		log.Warn().Int("dbs", len(pool.dbs)).Msg("bailout invalid index!")
 		return ErrInvalidIndex
 	}
 
 	// check if db is in the correct state
 	testDB := pool.dbs[id]
 	if testDB.state != dbStateDirty {
+		log.Warn().Int("dbs", len(pool.dbs)).Msgf("bailout invalid state=%v.", testDB.state)
 		return nil
 	}
 
@@ -292,28 +314,28 @@ func (pool *HashPool) ReturnTestDatabase(ctx context.Context, id int) error {
 	pool.dbs[id] = testDB
 
 	// remove id from dirty and add it to ready channel
-	pool.excludeIDFromDirtyChannel(id)
+	pool.excludeIDFromChannel(pool.dirty, id)
 	pool.ready <- id
 
-	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (ReturnTestDatabase)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
+	pool.unsafeTraceLogStats(log)
 
 	return nil
 }
 
-func (pool *HashPool) excludeIDFromDirtyChannel(id int) {
+func (pool *HashPool) excludeIDFromChannel(ch chan int, excludeID int) {
 
-	// The testDB identified by overgiven id may still in the dirty channel. We want to exclude it.
+	// The testDB identified by overgiven id may still in a specific channel (typically dirty). We want to exclude it.
 	// We need to explicitly remove it from there by filtering the current channel to a tmp channel.
-	// We finally close the tmp channel and flush it onto the dirty channel again.
+	// We finally close the tmp channel and flush it onto the specific channel again.
 	// The id is now no longer in the channel.
-	filteredDirty := make(chan int, pool.MaxPoolSize)
+	filtered := make(chan int, pool.MaxPoolSize)
 
-	var dirtyID int
+	var id int
 	for loop := true; loop; {
 		select {
-		case dirtyID = <-pool.dirty:
-			if dirtyID != id {
-				filteredDirty <- dirtyID
+		case id = <-ch:
+			if id != excludeID {
+				filtered <- id
 			}
 		default:
 			loop = false
@@ -321,55 +343,66 @@ func (pool *HashPool) excludeIDFromDirtyChannel(id int) {
 		}
 	}
 
-	// filteredDirty now has all filtered values without the above id, redirect the other ids back to the dirty channel.
+	// filtered now has all filtered values without the above id, redirect the other ids back to the specific channel.
 	// close so we can range over it...
-	close(filteredDirty)
+	close(filtered)
 
-	for dirtyID := range filteredDirty {
-		pool.dirty <- dirtyID
+	for id := range filtered {
+		ch <- id
 	}
 }
 
 // RecreateTestDatabase prioritizes the test DB to be recreated next via the dirty worker.
 func (pool *HashPool) RecreateTestDatabase(ctx context.Context, id int) error {
 
+	log := pool.getPoolLogger(ctx, "RecreateTestDatabase").With().Int("id", id).Logger()
+	log.Debug().Msg("flag testdatabase for recreation...")
+
 	pool.RLock()
+
 	if id < 0 || id >= len(pool.dbs) {
+		log.Warn().Int("dbs", len(pool.dbs)).Msg("bailout invalid index!")
 		pool.RUnlock()
 		return ErrInvalidIndex
 	}
 
-	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (RecreateTestDatabase %v)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize, id)
 	pool.RUnlock()
 
-	if ctx.Err() != nil {
+	if err := ctx.Err(); err != nil {
 		// client vanished
-		return ctx.Err()
+		log.Warn().Err(err).Msg("bailout client vanished!")
+		return err
 	}
 
 	// exclude from the normal dirty channel, force recreation in a background worker...
-	pool.excludeIDFromDirtyChannel(id)
+	pool.excludeIDFromChannel(pool.dirty, id)
 
 	// directly spawn a new worker in the bg (with the same ctx as the typical workers)
 	// note that this runs unchained, meaning we do not care about errors that may happen via this bg task
 	//nolint:errcheck
 	go pool.recreateDatabaseGracefully(pool.workerContext, id)
 
+	pool.unsafeTraceLogStats(log)
 	return nil
 }
 
 // recreateDatabaseGracefully continuosly tries to recreate the testdatabase and will retry/block until it succeeds
 func (pool *HashPool) recreateDatabaseGracefully(ctx context.Context, id int) error {
 
-	if ctx.Err() != nil {
+	log := pool.getPoolLogger(ctx, "recreateDatabaseGracefully").With().Int("id", id).Logger()
+	log.Debug().Msg("recreating...")
+
+	if err := ctx.Err(); err != nil {
 		// pool closed in the meantime.
-		return ctx.Err()
+		log.Error().Err(err).Msg("bailout pre locking ctx err")
+		return err
 	}
 
 	pool.Lock()
 
-	if pool.dbs[id].state != dbStateDirty {
+	if state := pool.dbs[id].state; state != dbStateDirty {
 		// nothing to do
+		log.Error().Msgf("bailout not dbStateDirty state=%v", state)
 		pool.Unlock()
 		return nil
 	}
@@ -397,7 +430,7 @@ func (pool *HashPool) recreateDatabaseGracefully(ctx context.Context, id int) er
 		default:
 			try++
 
-			fmt.Printf("recreateDatabaseGracefully: recreating ID='%v' try=%v...\n", id, try)
+			log.Trace().Int("try", try).Msg("trying to recreate...")
 			err := pool.recreateDB(ctx, &testDB)
 			if err != nil {
 				// only still connected errors are worthy a retry
@@ -408,10 +441,11 @@ func (pool *HashPool) recreateDatabaseGracefully(ctx context.Context, id int) er
 						backoff = pool.PoolConfig.TestDatabaseRetryRecreateSleepMax
 					}
 
-					fmt.Printf("recreateDatabaseGracefully: DB is still in use, will retry ID='%v' try=%v in backoff=%v.\n", id, try, backoff)
+					log.Warn().Int("try", try).Dur("backoff", backoff).Msg("DB is still in use, will retry...")
 					time.Sleep(backoff)
 				} else {
-					fmt.Printf("recreateDatabaseGracefully: bailout worker task DB error while cleanup ID='%v' try=%v err=%v\n", id, try, err)
+
+					log.Error().Int("try", try).Err(err).Msg("bailout worker task DB error while cleanup!")
 					return err
 				}
 			} else {
@@ -429,11 +463,10 @@ MoveToReady:
 		return ctx.Err()
 	}
 
-	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (recreateDatabaseGracefully %v)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize, id)
-
 	if pool.dbs[id].state == dbStateReady {
 		// oups, it has been cleaned by another worker already
 		// we won't add it to the 'ready' channel to avoid duplication
+		log.Warn().Msg("bailout DB has be cleaned by another worker as its already ready, skipping readd to ready channel!")
 		return nil
 	}
 
@@ -443,6 +476,8 @@ MoveToReady:
 
 	pool.ready <- pool.dbs[id].ID
 
+	log.Debug().Uint("generation", pool.dbs[id].generation).Msg("ready")
+	pool.unsafeTraceLogStats(log)
 	return nil
 }
 
@@ -450,6 +485,9 @@ MoveToReady:
 // When the DB is recreated according to a template, its index goes to the 'ready' channel.
 // Note that we generally gurantee FIFO when it comes to auto-cleaning as long as no manual unlock/recreates happen.
 func (pool *HashPool) autoCleanDirty(ctx context.Context) error {
+
+	log := pool.getPoolLogger(ctx, "autoCleanDirty")
+	log.Trace().Msg("autocleaning...")
 
 	ctx, task := trace.NewTask(ctx, "worker_clean_dirty")
 	defer task.End()
@@ -461,11 +499,13 @@ func (pool *HashPool) autoCleanDirty(ctx context.Context) error {
 		return ctx.Err()
 	default:
 		// nothing to do
-		fmt.Println("autoCleanDirty noop")
+		log.Trace().Msg("noop")
 		return nil
 	}
 
-	fmt.Printf("pool#%s: autoCleanDirty id=%v\n", pool.templateDB.TemplateHash, id)
+	// got id...
+	log = log.With().Int("id", id).Logger()
+	log.Trace().Msg("checking cleaning prerequisites...")
 
 	regLock := trace.StartRegion(ctx, "worker_wait_for_rlock_hash_pool")
 	pool.RLock()
@@ -473,6 +513,7 @@ func (pool *HashPool) autoCleanDirty(ctx context.Context) error {
 
 	if id < 0 || id >= len(pool.dbs) {
 		// sanity check, should never happen
+		log.Warn().Int("dbs", len(pool.dbs)).Msg("bailout invalid index!")
 		pool.RUnlock()
 		return ErrInvalidIndex
 	}
@@ -480,16 +521,19 @@ func (pool *HashPool) autoCleanDirty(ctx context.Context) error {
 	blockedUntil := time.Until(pool.dbs[id].blockAutoCleanDirtyUntil)
 	generation := pool.dbs[id].generation
 
+	log = log.With().Dur("blockedUntil", blockedUntil).Uint("generation", generation).Logger()
+
 	pool.RUnlock()
 
 	// immediately pass to pool recreate
 	if blockedUntil <= 0 {
+		log.Trace().Msg("clean now (immediate)!")
 		return pool.recreateDatabaseGracefully(ctx, id)
 	}
 
 	// else we need to wait until we are allowed to work with it!
 	// we block auto-cleaning until we are allowed to...
-	fmt.Printf("pool#%s: autoCleanDirty id=%v sleep for blockedUntil=%v...\n", pool.templateDB.TemplateHash, id, blockedUntil)
+	log.Warn().Msg("sleeping before being allowed to clean...")
 	time.Sleep(blockedUntil)
 
 	// we need to check that the testDB.generation did not change since we slept
@@ -497,13 +541,14 @@ func (pool *HashPool) autoCleanDirty(ctx context.Context) error {
 	pool.RLock()
 
 	if pool.dbs[id].generation != generation || pool.dbs[id].state != dbStateDirty {
-		fmt.Printf("pool#%s: autoCleanDirty id=%v bailout old generation=%v vs new generation=%v state=%v...\n", pool.templateDB.TemplateHash, id, generation, pool.dbs[id].generation, pool.dbs[id].state)
+		log.Error().Msgf("bailout old generation=%v vs new generation=%v state=%v", generation, pool.dbs[id].generation, pool.dbs[id].state)
 		pool.RUnlock()
 		return nil
 	}
 
 	pool.RUnlock()
 
+	log.Trace().Msg("clean now (after sleep has happenend)!")
 	return pool.recreateDatabaseGracefully(ctx, id)
 }
 
@@ -521,6 +566,9 @@ func ignoreErrs(f func(ctx context.Context) error, errs ...error) func(context.C
 
 func (pool *HashPool) extend(ctx context.Context) error {
 
+	log := pool.getPoolLogger(ctx, "extend")
+	log.Trace().Msg("extending...")
+
 	ctx, task := trace.NewTask(ctx, "worker_extend")
 	defer task.End()
 
@@ -528,12 +576,12 @@ func (pool *HashPool) extend(ctx context.Context) error {
 	pool.Lock()
 	defer pool.Unlock()
 
-	fmt.Printf("pool#%s: ready=%d, dirty=%d, recreating=%d, tasksChan=%d, dbs=%d initial=%d max=%d (extend)\n", pool.templateDB.TemplateHash, len(pool.ready), len(pool.dirty), len(pool.recreating), len(pool.tasksChan), len(pool.dbs), pool.PoolConfig.InitialPoolSize, pool.PoolConfig.MaxPoolSize)
 	reg.End()
 
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
 	if index == cap(pool.dbs) {
+		log.Error().Int("dbs", len(pool.dbs)).Int("cap", cap(pool.dbs)).Err(ErrPoolFull).Msg("pool is full")
 		return ErrPoolFull
 	}
 
@@ -551,6 +599,8 @@ func (pool *HashPool) extend(ctx context.Context) error {
 	// set DB name
 	newTestDB.Database.Config.Database = makeDBName(pool.TestDBNamePrefix, pool.templateDB.TemplateHash, index)
 
+	log.Trace().Int("id", index).Msg("adding...")
+
 	reg = trace.StartRegion(ctx, "worker_db_operation")
 	err := pool.recreateDB(ctx, &newTestDB)
 	reg.End()
@@ -564,18 +614,25 @@ func (pool *HashPool) extend(ctx context.Context) error {
 
 	pool.ready <- newTestDB.ID
 
+	pool.unsafeTraceLogStats(log)
+
 	return nil
 }
 
 func (pool *HashPool) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc) error {
 
+	log := pool.getPoolLogger(ctx, "RemoveAll")
+
 	// stop all workers
 	pool.Stop()
+
+	// wait until all current "recreating" tasks are finished...
 
 	pool.Lock()
 	defer pool.Unlock()
 
 	if len(pool.dbs) == 0 {
+		log.Error().Msg("bailout no dbs.")
 		return nil
 	}
 
@@ -584,17 +641,33 @@ func (pool *HashPool) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc) er
 		testDB := pool.dbs[id].TestDatabase
 
 		if err := removeFunc(ctx, testDB); err != nil {
+			log.Error().Int("id", id).Err(err).Msg("removeFunc testdatabase err")
 			return err
 		}
 
 		if len(pool.dbs) > 1 {
 			pool.dbs = pool.dbs[:len(pool.dbs)-1]
 		}
+
+		pool.excludeIDFromChannel(pool.dirty, id)
+		pool.excludeIDFromChannel(pool.ready, id)
+		log.Debug().Int("id", id).Msg("testdatabase removed!")
 	}
 
 	// close all only if removal of all succeeded
 	pool.dbs = nil
 	close(pool.tasksChan)
 
+	pool.unsafeTraceLogStats(log)
+
 	return nil
+}
+
+func (pool *HashPool) getPoolLogger(ctx context.Context, poolFunction string) zerolog.Logger {
+	return util.LogFromContext(ctx).With().Str("poolHash", pool.templateDB.TemplateHash).Str("poolFn", poolFunction).Logger()
+}
+
+// unsafeTraceLogStats logs stats of this pool. Attention: pool should be read or write locked!
+func (pool *HashPool) unsafeTraceLogStats(log zerolog.Logger) {
+	log.Trace().Int("ready", len(pool.ready)).Int("dirty", len(pool.dirty)).Int("recreating", len(pool.recreating)).Int("tasksChan", len(pool.tasksChan)).Int("dbs", len(pool.dbs)).Int("initial", pool.PoolConfig.InitialPoolSize).Int("max", pool.PoolConfig.MaxPoolSize).Msg("pool stats")
 }

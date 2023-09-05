@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/trace"
@@ -11,7 +12,10 @@ import (
 	"github.com/allaboutapps/integresql/pkg/db"
 	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/allaboutapps/integresql/pkg/templates"
+	"github.com/allaboutapps/integresql/pkg/util"
 	"github.com/lib/pq"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -64,6 +68,15 @@ func New(config ManagerConfig) (*Manager, ManagerConfig) {
 		config.PoolConfig.MaxParallelTasks = 1
 	}
 
+	// debug log final derived config
+	c, err := json.Marshal(config)
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to marshal the env")
+	}
+
+	log.Debug().RawJSON("config", c).Msg("manager.New")
+
 	m := &Manager{
 		config:    config,
 		db:        nil,
@@ -80,37 +93,54 @@ func DefaultFromEnv() *Manager {
 }
 
 func (m *Manager) Connect(ctx context.Context) error {
+
+	log := m.getManagerLogger(ctx, "Connect")
+
 	if m.db != nil {
-		return errors.New("manager is already connected")
+		err := errors.New("manager is already connected")
+		log.Error().Err(err)
+		return err
 	}
 
 	db, err := sql.Open("postgres", m.config.ManagerDatabaseConfig.ConnectionString())
 	if err != nil {
+		log.Error().Err(err).Msg("unable to connect")
 		return err
 	}
 
 	if err := db.PingContext(ctx); err != nil {
+		log.Error().Err(err).Msg("unable to ping")
 		return err
 	}
 
 	m.db = db
 
+	log.Debug().Msg("connected.")
+
 	return nil
 }
 
-func (m *Manager) Disconnect(_ context.Context, ignoreCloseError bool) error {
+func (m *Manager) Disconnect(ctx context.Context, ignoreCloseError bool) error {
+
+	log := m.getManagerLogger(ctx, "Disconnect").With().Bool("ignoreCloseError", ignoreCloseError).Logger()
+
 	if m.db == nil {
-		return errors.New("manager is not connected")
+		err := errors.New("manager is not connected")
+		log.Error().Err(err)
+		return err
 	}
 
 	// stop the pool before closing DB connection
 	m.pool.Stop()
 
 	if err := m.db.Close(); err != nil && !ignoreCloseError {
+		log.Error().Err(err)
 		return err
 	}
 
 	m.db = nil
+
+	log.Warn().Msg("disconnected.")
 
 	return nil
 }
@@ -128,17 +158,24 @@ func (m Manager) Ready() bool {
 }
 
 func (m *Manager) Initialize(ctx context.Context) error {
+
+	log := m.getManagerLogger(ctx, "Initialize")
+
 	if !m.Ready() {
 		if err := m.Connect(ctx); err != nil {
+			log.Error().Err(err)
 			return err
 		}
 	}
 
 	rows, err := m.db.QueryContext(ctx, "SELECT datname FROM pg_database WHERE datname LIKE $1", fmt.Sprintf("%s_%s_%%", m.config.DatabasePrefix, m.config.PoolConfig.TestDBNamePrefix))
 	if err != nil {
+		log.Error().Err(err)
 		return err
 	}
 	defer rows.Close()
+
+	log.Debug().Msg("Dropping unmanaged dbs...")
 
 	for rows.Next() {
 		var dbName string
@@ -146,19 +183,28 @@ func (m *Manager) Initialize(ctx context.Context) error {
 			return err
 		}
 
+		log.Warn().Str("dbName", dbName).Msg("Dropping...")
+
 		if _, err := m.db.Exec(fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))); err != nil {
+			log.Error().Str("dbName", dbName).Err(err)
 			return err
 		}
 	}
+
+	log.Info().Msg("initialized.")
 
 	return nil
 }
 
 func (m Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "initialize_template_db")
+
+	log := m.getManagerLogger(ctx, "InitializeTemplateDatabase").With().Str("hash", hash).Logger()
+
 	defer task.End()
 
 	if !m.Ready() {
+		log.Error().Msg("not ready")
 		return db.TemplateDatabase{}, ErrManagerNotReady
 	}
 
@@ -183,6 +229,8 @@ func (m Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (d
 
 	reg := trace.StartRegion(ctx, "drop_and_create_db")
 	if err := m.dropAndCreateDatabase(ctx, dbName, m.config.ManagerDatabaseConfig.Username, m.config.TemplateDatabaseTemplate); err != nil {
+
+		log.Error().Err(err).Msg("triggering unsafe remove after dropAndCreateDatabase failed...")
 		m.templates.RemoveUnsafe(ctx, hash)
 
 		return db.TemplateDatabase{}, err
@@ -192,6 +240,8 @@ func (m Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (d
 	// if template config has been overwritten, the existing pool needs to be removed
 	err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB)
 	if err != nil && !errors.Is(err, pool.ErrUnknownHash) {
+
+		log.Error().Err(err).Msg("triggering unsafe remove after RemoveAllWithHash failed...")
 		m.templates.RemoveUnsafe(ctx, hash)
 
 		return db.TemplateDatabase{}, err
@@ -208,14 +258,18 @@ func (m Manager) InitializeTemplateDatabase(ctx context.Context, hash string) (d
 func (m Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error {
 
 	ctx, task := trace.NewTask(ctx, "discard_template_db")
+	log := m.getManagerLogger(ctx, "DiscardTemplateDatabase").With().Str("hash", hash).Logger()
+
 	defer task.End()
 
 	if !m.Ready() {
+		log.Error().Msg("not ready")
 		return ErrManagerNotReady
 	}
 
 	// first remove all DB with this hash
 	if err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB); err != nil && !errors.Is(err, pool.ErrUnknownHash) {
+		log.Error().Err(err).Msg("remove all err")
 		return err
 	}
 
@@ -224,6 +278,9 @@ func (m Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error
 
 	if !found {
 		// even if a template is not found in the collection, it might still exist in the DB
+
+		log.Warn().Msg("template not found, checking for existance...")
+
 		dbName = m.makeTemplateDatabaseName(hash)
 		exists, err := m.checkDatabaseExists(ctx, dbName)
 		if err != nil {
@@ -237,19 +294,26 @@ func (m Manager) DiscardTemplateDatabase(ctx context.Context, hash string) error
 		template.SetState(ctx, templates.TemplateStateDiscarded)
 	}
 
+	log.Debug().Msg("found template database, dropping...")
+
 	return m.dropDatabase(ctx, dbName)
 }
 
 func (m Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.TemplateDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "finalize_template_db")
+
+	log := m.getManagerLogger(ctx, "FinalizeTemplateDatabase").With().Str("hash", hash).Logger()
+
 	defer task.End()
 
 	if !m.Ready() {
+		log.Error().Msg("not ready")
 		return db.TemplateDatabase{}, ErrManagerNotReady
 	}
 
 	template, found := m.templates.Get(ctx, hash)
 	if !found {
+		log.Error().Msg("bailout: template not found")
 		return db.TemplateDatabase{}, ErrTemplateNotFound
 	}
 
@@ -258,28 +322,36 @@ func (m Manager) FinalizeTemplateDatabase(ctx context.Context, hash string) (db.
 
 	// early bailout if we are already ready (multiple calls)
 	if state == templates.TemplateStateFinalized {
+		log.Warn().Msg("bailout: template already finalized")
 		return db.TemplateDatabase{Database: template.Database}, ErrTemplateAlreadyInitialized
 	}
 
 	// Disallow transition from discarded to ready
 	if state == templates.TemplateStateDiscarded {
+		log.Error().Msg("bailout: template discarded!")
 		return db.TemplateDatabase{}, ErrTemplateDiscarded
 	}
 
 	// Init a pool with this hash
+	log.Trace().Msg("init hash pool...")
 	m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
 
 	lockedTemplate.SetState(ctx, templates.TemplateStateFinalized)
 
+	log.Debug().Msg("Template database finalized successfully.")
 	return db.TemplateDatabase{Database: template.Database}, nil
 }
 
 // GetTestDatabase tries to get a ready test DB from an existing pool.
 func (m Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatabase, error) {
 	ctx, task := trace.NewTask(ctx, "get_test_db")
+
+	log := m.getManagerLogger(ctx, "GetTestDatabase").With().Str("hash", hash).Logger()
+
 	defer task.End()
 
 	if !m.Ready() {
+		log.Error().Msg("not ready")
 		return db.TestDatabase{}, ErrManagerNotReady
 	}
 
@@ -302,6 +374,7 @@ func (m Manager) GetTestDatabase(ctx context.Context, hash string) (db.TestDatab
 		// Template exists, but the pool is not there -
 		// it must have been removed.
 		// It needs to be reinitialized.
+		log.Warn().Err(err).Msg("ErrUnknownHash, going to InitHashPool and recursively calling us again...")
 		m.pool.InitHashPool(ctx, template.Database, m.recreateTestPoolDB)
 
 		testDB, err = m.pool.GetTestDatabase(ctx, template.TemplateHash, m.config.TestDatabaseGetTimeout)
@@ -336,14 +409,7 @@ func (m Manager) ReturnTestDatabase(ctx context.Context, hash string, id int) er
 	}
 
 	// template is ready, we can return unchanged testDB to the pool
-	if err := m.pool.ReturnTestDatabase(ctx, hash, id); err != nil {
-
-		fmt.Printf("manager.ReturnTestDatabase error: %v\n", err)
-
-		return err
-	}
-
-	return nil
+	return m.pool.ReturnTestDatabase(ctx, hash, id)
 }
 
 // RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
@@ -367,20 +433,19 @@ func (m *Manager) RecreateTestDatabase(ctx context.Context, hash string, id int)
 	}
 
 	// template is ready, we can return the testDB to the pool and have it cleaned up
-	if err := m.pool.RecreateTestDatabase(ctx, hash, id); err != nil {
-
-		fmt.Printf("manager.RecreateTestDatabase error: %v\n", err)
-
-		return err
-	}
-
-	return nil
+	return m.pool.RecreateTestDatabase(ctx, hash, id)
 }
 
 func (m Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) error {
+
+	log := m.getManagerLogger(ctx, "ClearTrackedTestDatabases").With().Str("hash", hash).Logger()
+
 	if !m.Ready() {
+		log.Error().Msg("not ready")
 		return ErrManagerNotReady
 	}
+
+	log.Warn().Msg("clearing...")
 
 	err := m.pool.RemoveAllWithHash(ctx, hash, m.dropTestPoolDB)
 	if errors.Is(err, pool.ErrUnknownHash) {
@@ -391,9 +456,15 @@ func (m Manager) ClearTrackedTestDatabases(ctx context.Context, hash string) err
 }
 
 func (m Manager) ResetAllTracking(ctx context.Context) error {
+
+	log := m.getManagerLogger(ctx, "ResetAllTracking")
+
 	if !m.Ready() {
+		log.Error().Msg("not ready")
 		return ErrManagerNotReady
 	}
+
+	log.Warn().Msg("resetting...")
 
 	// remove all templates to disallow any new test DB creation from existing templates
 	m.templates.RemoveAll(ctx)
@@ -404,7 +475,8 @@ func (m Manager) ResetAllTracking(ctx context.Context) error {
 func (m Manager) checkDatabaseExists(ctx context.Context, dbName string) (bool, error) {
 	var exists bool
 
-	// fmt.Printf("SELECT 1 AS exists FROM pg_database WHERE datname = %s\n", dbName)
+	log := m.getManagerLogger(ctx, "checkDatabaseExists")
+	log.Trace().Msgf("SELECT 1 AS exists FROM pg_database WHERE datname = %s\n", dbName)
 
 	if err := m.db.QueryRowContext(ctx, "SELECT 1 AS exists FROM pg_database WHERE datname = $1", dbName).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
@@ -440,7 +512,8 @@ func (m Manager) createDatabase(ctx context.Context, dbName string, owner string
 
 	defer trace.StartRegion(ctx, "create_db").End()
 
-	// fmt.Printf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s\n", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))
+	log := m.getManagerLogger(ctx, "createDatabase")
+	log.Trace().Msgf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s\n", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s WITH OWNER %s TEMPLATE %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(owner), pq.QuoteIdentifier(template))); err != nil {
 		return err
@@ -472,7 +545,8 @@ func (m Manager) dropDatabase(ctx context.Context, dbName string) error {
 
 	defer trace.StartRegion(ctx, "drop_db").End()
 
-	// fmt.Printf("DROP DATABASE IF EXISTS %s\n", pq.QuoteIdentifier(dbName))
+	log := m.getManagerLogger(ctx, "dropDatabase")
+	log.Trace().Msgf("DROP DATABASE IF EXISTS %s\n", pq.QuoteIdentifier(dbName))
 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		if strings.Contains(err.Error(), "is being accessed by other users") {
@@ -499,4 +573,8 @@ func (m Manager) dropAndCreateDatabase(ctx context.Context, dbName string, owner
 
 func (m Manager) makeTemplateDatabaseName(hash string) string {
 	return fmt.Sprintf("%s_%s_%s", m.config.DatabasePrefix, m.config.TemplateDatabasePrefix, hash)
+}
+
+func (m Manager) getManagerLogger(ctx context.Context, managerFunction string) zerolog.Logger {
+	return util.LogFromContext(ctx).With().Str("managerFn", managerFunction).Logger()
 }

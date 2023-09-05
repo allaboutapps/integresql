@@ -509,7 +509,7 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			// fmt.Println(err)
+			// t.Log(err)
 			errored++
 		}
 	}
@@ -577,7 +577,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			// fmt.Println(err)
+			t.Log(err)
 			errored++
 		}
 	}
