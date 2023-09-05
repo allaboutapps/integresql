@@ -822,19 +822,28 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 	// finally return it
 	assert.NoError(t, m.ReturnTestDatabase(ctx, hash, testDB1.ID))
 
+	// regetting these databases is quite random. Let's try to get the same id again...
 	// on first GET call the pool has been extended
 	// we will get the newly created DB
 	testDB2, err := m.GetTestDatabase(ctx, hash)
 	assert.NoError(t, err)
-	assert.NotEqual(t, testDB1.ID, testDB2.ID)
 
 	// next in 'ready' channel should be the returned DB
 	testDB3, err := m.GetTestDatabase(ctx, hash)
 	assert.NoError(t, err)
-	assert.Equal(t, testDB1.ID, testDB3.ID)
+
+	// restored db
+	var targetConnectionString string
+	if testDB2.ID == testDB1.ID {
+		targetConnectionString = testDB2.Config.ConnectionString()
+	} else if testDB3.ID == testDB1.ID {
+		targetConnectionString = testDB3.Config.ConnectionString()
+	} else {
+		t.Fatal("We should have been able to get the previously returned database.")
+	}
 
 	// assert that it hasn't been cleaned but just reused directly
-	db, err = sql.Open("postgres", testDB3.Config.ConnectionString())
+	db, err = sql.Open("postgres", targetConnectionString)
 	require.NoError(t, err)
 	require.NoError(t, db.PingContext(ctx))
 

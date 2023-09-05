@@ -574,20 +574,19 @@ func (pool *HashPool) extend(ctx context.Context) error {
 
 	reg := trace.StartRegion(ctx, "worker_wait_for_lock_hash_pool")
 	pool.Lock()
-	defer pool.Unlock()
-
 	reg.End()
 
 	// get index of a next test DB - its ID
 	index := len(pool.dbs)
 	if index == cap(pool.dbs) {
 		log.Error().Int("dbs", len(pool.dbs)).Int("cap", cap(pool.dbs)).Err(ErrPoolFull).Msg("pool is full")
+		pool.Unlock()
 		return ErrPoolFull
 	}
 
-	// initalization of a new DB using template config
+	// initalization of a new DB using template config, it must start in state dirty!
 	newTestDB := existingDB{
-		state: dbStateReady,
+		state: dbStateDirty,
 		TestDatabase: db.TestDatabase{
 			Database: db.Database{
 				TemplateHash: pool.templateDB.TemplateHash,
@@ -599,24 +598,15 @@ func (pool *HashPool) extend(ctx context.Context) error {
 	// set DB name
 	newTestDB.Database.Config.Database = makeDBName(pool.TestDBNamePrefix, pool.templateDB.TemplateHash, index)
 
-	log.Trace().Int("id", index).Msg("adding...")
-
-	reg = trace.StartRegion(ctx, "worker_db_operation")
-	err := pool.recreateDB(ctx, &newTestDB)
-	reg.End()
-
-	if err != nil {
-		return err
-	}
-
-	// add new test DB to the pool
+	// add new test DB to the pool (currently it's dirty!)
 	pool.dbs = append(pool.dbs, newTestDB)
 
-	pool.ready <- newTestDB.ID
-
+	log.Trace().Int("id", index).Msg("appended as dirty, recreating...")
 	pool.unsafeTraceLogStats(log)
+	pool.Unlock()
 
-	return nil
+	// forced recreate...
+	return pool.recreateDatabaseGracefully(ctx, index)
 }
 
 func (pool *HashPool) RemoveAll(ctx context.Context, removeFunc RemoveDBFunc) error {
