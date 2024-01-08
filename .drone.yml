@@ -137,7 +137,7 @@ pipeline:
       target: builder
       compress: true
       platforms: linux/amd64,linux/arm64/v8
-      tag: *IMAGE_BUILDER_ID
+      tags: *IMAGE_BUILDER_ID
       dry-run: true
 
   # "docker build (target builder)":
@@ -163,7 +163,7 @@ pipeline:
       target: integresql
       compress: true
       platforms: linux/amd64,linux/arm64/v8
-      tag: *IMAGE_DEPLOY_ID
+      tags: *IMAGE_DEPLOY_ID
       dry-run: true
 
   # "docker build (target integresql)":
