@@ -129,6 +129,8 @@ pipeline:
   "docker build (target builder)":
     group: build
     image: woodpeckerci/plugin-docker-buildx
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     settings:
       repo: eu.gcr.io/a3cloud-192413/${DRONE_REPO,,}
       registry: eu.gcr.io
@@ -153,6 +155,8 @@ pipeline:
   "docker build (target integresql)":
     group: build-app
     image: woodpeckerci/plugin-docker-buildx
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     settings:
       repo: eu.gcr.io/a3cloud-192413/${DRONE_REPO,,}
       registry: eu.gcr.io
