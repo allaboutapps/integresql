@@ -32,6 +32,7 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
     - [Development setup](#development-setup)
     - [Development quickstart](#development-quickstart)
   - [Maintainers](#maintainers)
+  - [Previous maintainers](#previous-maintainers)
   - [License](#license)
 
 ## Background
@@ -455,9 +456,13 @@ integresql
 
 ## Maintainers
 
-- [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
 - [Mario Ranftl - @majodev](https://github.com/majodev)
+
+## Previous maintainers
+
+- [Anna Jankowska - @anjankow](https://github.com/anjankow)
+- [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
 
 ## License
 
-[MIT](LICENSE) © 2020 aaa – all about apps GmbH | Nick Müller | Mario Ranftl and the `IntegreSQL` project contributors
+[MIT](LICENSE) © 2020-2024 aaa – all about apps GmbH | Nick Müller | Mario Ranftl and the `IntegreSQL` project contributors

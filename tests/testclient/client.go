@@ -129,9 +129,10 @@ func (c *Client) SetupTemplate(ctx context.Context, hash string, init func(conn 
 		return c.FinalizeTemplate(ctx, hash)
 	} else if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 		return nil
-	} else {
-		return err
 	}
+
+	return err
+
 }
 
 func (c *Client) SetupTemplateWithDBClient(ctx context.Context, hash string, init func(db *sql.DB) error) error {

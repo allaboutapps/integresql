@@ -4,7 +4,7 @@
 # --- https://hub.docker.com/_/golang
 # --- https://github.com/microsoft/vscode-remote-try-go/blob/master/.devcontainer/Dockerfile
 ### -----------------------
-FROM golang:1.20.5-bullseye AS development
+FROM golang:1.21.5-bullseye AS development
 
 # Avoid warnings by switching to noninteractive
 ENV DEBIAN_FRONTEND=noninteractive
@@ -79,9 +79,9 @@ ENV LANG en_US.UTF-8
 # https://github.com/darold/pgFormatter/releases
 RUN mkdir -p /tmp/pgFormatter \
     && cd /tmp/pgFormatter \
-    && wget https://github.com/darold/pgFormatter/archive/v5.3.tar.gz \
-    && tar xzf v5.3.tar.gz \
-    && cd pgFormatter-5.3 \
+    && wget https://github.com/darold/pgFormatter/archive/v5.5.tar.gz \
+    && tar xzf v5.5.tar.gz \
+    && cd pgFormatter-5.5 \
     && perl Makefile.PL \
     && make && make install \
     && rm -rf /tmp/pgFormatter
@@ -91,8 +91,8 @@ RUN mkdir -p /tmp/pgFormatter \
 RUN mkdir -p /tmp/gotestsum \
     && cd /tmp/gotestsum \
     && ARCH="$(arch | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)" \
-    && wget "https://github.com/gotestyourself/gotestsum/releases/download/v1.9.0/gotestsum_1.9.0_linux_${ARCH}.tar.gz" \
-    && tar xzf "gotestsum_1.9.0_linux_${ARCH}.tar.gz" \
+    && wget "https://github.com/gotestyourself/gotestsum/releases/download/v1.11.0/gotestsum_1.11.0_linux_${ARCH}.tar.gz" \
+    && tar xzf "gotestsum_1.11.0_linux_${ARCH}.tar.gz" \
     && cp gotestsum /usr/local/bin/gotestsum \
     && rm -rf /tmp/gotestsum
 
@@ -100,7 +100,7 @@ RUN mkdir -p /tmp/gotestsum \
 # https://github.com/golangci/golangci-lint#binary
 # https://github.com/golangci/golangci-lint/releases
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
-    | sh -s -- -b $(go env GOPATH)/bin v1.52.2
+    | sh -s -- -b $(go env GOPATH)/bin v1.55.2
 
 # go swagger: (this package should NOT be installed via go get)
 # https://github.com/go-swagger/go-swagger/releases
