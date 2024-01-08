@@ -4,8 +4,8 @@
 
 # first is default target when running "make" without args
 build: ##- Default 'make' target: go-format, go-build and lint.
-	@$(MAKE) format
-	@$(MAKE) gobuild
+	@$(MAKE) go-format
+	@$(MAKE) go-build
 	@$(MAKE) lint
 
 # useful to ensure that everything gets resetuped from scratch
@@ -22,14 +22,16 @@ info-go: ##- (opt) Prints go.mod updates, module-name and current go version.
 	@go version >> tmp/.info-go
 	@cat tmp/.info-go
 
-format:
-	go fmt
+lint: go-lint  ##- Runs golangci-lint and make check-*.
 
-gobuild:
-	go build -o bin/integresql ./cmd/server
+go-format: ##- (opt) Runs go format.
+	go fmt ./...
 
-lint:
-	golangci-lint run --fast
+go-build: ##- (opt) Runs go build.
+	go build -ldflags $(LDFLAGS) -o bin/integresql ./cmd/server
+
+go-lint: ##- (opt) Runs golangci-lint.
+	golangci-lint run --timeout 5m
 
 bench: ##- Run tests, output by package, print coverage.
 	@go test -benchmem=false -run=./... -bench . github.com/allaboutapps/integresql/tests -race -count=4 -v
@@ -45,7 +47,10 @@ test: ##- Run tests, output by package, print coverage.
 
 # note that we explicitly don't want to use a -coverpkg=./... option, per pkg coverage take precedence
 go-test-by-pkg: ##- (opt) Run tests, output by package.
-	gotestsum --format pkgname-and-test-fails --jsonfile /tmp/test.log -- -race -cover -count=1 -coverprofile=/tmp/coverage.out ./...
+	gotestsum --format pkgname-and-test-fails --format-hide-empty-pkg --jsonfile /tmp/test.log -- -race -cover -count=1 -coverprofile=/tmp/coverage.out ./...
+
+go-test-by-name: ##- (opt) Run tests, output by testname.
+	gotestsum --format testname --jsonfile /tmp/test.log -- -race -cover -count=1 -coverprofile=/tmp/coverage.out ./...
 
 go-test-print-coverage: ##- (opt) Print overall test coverage (must be done after running tests).
 	@printf "coverage "
@@ -176,10 +181,6 @@ LDFLAGS = $(eval LDFLAGS := "\
 # required to ensure make fails if one recipe fails (even on parallel jobs) and on pipefails
 .ONESHELL:
 
-# # normal POSIX bash shell mode
-# SHELL = /bin/bash
-# .SHELLFLAGS = -cEeuo pipefail
-
-# wrapped make time tracing shell, use it via MAKE_TRACE_TIME=true make <target>
-# SHELL = /bin/rksh
-# .SHELLFLAGS = $@
+# normal POSIX bash shell mode
+SHELL = /bin/bash
+.SHELLFLAGS = -cEeuo pipefail

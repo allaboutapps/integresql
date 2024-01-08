@@ -51,7 +51,7 @@ func disconnectManager(t *testing.T, m *manager.Manager) {
 
 }
 
-func initTemplateDB(ctx context.Context, errs chan<- error, m *manager.Manager) {
+func initTemplateDB(_ context.Context, errs chan<- error, m *manager.Manager) {
 
 	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash")
 	if err != nil {
@@ -159,7 +159,7 @@ func verifyTestDB(t *testing.T, test db.TestDatabase) {
 	}
 }
 
-func getTestDB(ctx context.Context, errs chan<- error, m *manager.Manager) {
+func getTestDB(_ context.Context, errs chan<- error, m *manager.Manager) {
 
 	_, err := m.GetTestDatabase(context.Background(), "hashinghash")
 	errs <- err

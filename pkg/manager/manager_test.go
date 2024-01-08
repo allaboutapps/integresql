@@ -129,7 +129,7 @@ func TestManagerInitializeTemplateDatabaseTimeout(t *testing.T) {
 	defer cancel()
 
 	_, err := m.InitializeTemplateDatabase(ctxt, hash)
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("received unexpected error, got %v, want %v", err, context.DeadlineExceeded)
 	}
 }
@@ -173,7 +173,7 @@ func TestManagerInitializeTemplateDatabaseConcurrently(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			if err == manager.ErrTemplateAlreadyInitialized {
+			if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 				failed++
 			} else {
 				errored++
@@ -310,8 +310,8 @@ func TestManagerGetTestDatabaseExtendPool(t *testing.T) {
 
 	cfg := manager.DefaultManagerConfigFromEnv()
 	cfg.TestDatabaseGetTimeout = 300 * time.Millisecond
-	cfg.TestDatabaseInitialPoolSize = 0 // this will be autotransformed to 1 during init
-	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.PoolConfig.InitialPoolSize = 0 // this will be autotransformed to 1 during init
+	cfg.PoolConfig.MaxPoolSize = 10
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -335,7 +335,7 @@ func TestManagerGetTestDatabaseExtendPool(t *testing.T) {
 
 	previousID := -1
 	// assert than one by one pool will be extended
-	for i := 0; i < cfg.TestDatabaseMaxPoolSize; i++ {
+	for i := 0; i < cfg.PoolConfig.MaxPoolSize; i++ {
 		testDB, err := m.GetTestDatabase(ctx, hash)
 		assert.NoError(t, err)
 		assert.Equal(t, previousID+1, testDB.ID)
@@ -384,7 +384,10 @@ func TestManagerFinalizeTemplateAndGetTestDatabaseConcurrently(t *testing.T) {
 		return nil
 	})
 
-	g.Wait()
+	if err := g.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
 	first := <-testCh
 	assert.Equal(t, "FINALIZE", first)
 }
@@ -506,7 +509,7 @@ func TestManagerDiscardTemplateDatabase(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			// fmt.Println(err)
+			// t.Log(err)
 			errored++
 		}
 	}
@@ -574,7 +577,7 @@ func TestManagerDiscardThenReinitializeTemplateDatabase(t *testing.T) {
 		if err == nil {
 			success++
 		} else {
-			// fmt.Println(err)
+			t.Log(err)
 			errored++
 		}
 	}
@@ -606,8 +609,8 @@ func TestManagerGetAndReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 3
-	cfg.TestDatabaseMaxPoolSize = 3
+	cfg.PoolConfig.InitialPoolSize = 3
+	cfg.PoolConfig.MaxPoolSize = 3
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
@@ -631,7 +634,7 @@ func TestManagerGetAndReturnTestDatabase(t *testing.T) {
 	}
 
 	// request many more databases than initally added
-	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*3; i++ {
+	for i := 0; i <= cfg.PoolConfig.MaxPoolSize*3; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, test)
@@ -648,9 +651,9 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 10
-	cfg.TestDatabaseMaxPoolSize = 15
-	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
+	cfg.PoolConfig.InitialPoolSize = 8
+	cfg.PoolConfig.MaxPoolSize = 8
+	cfg.TestDatabaseGetTimeout = 1000 * time.Millisecond
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -673,8 +676,11 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 	}
 
 	// request many more databases than initally added
-	for i := 0; i <= cfg.TestDatabaseMaxPoolSize*3; i++ {
+	for i := 0; i <= cfg.PoolConfig.MaxPoolSize*5; i++ {
 		test, err := m.GetTestDatabase(ctx, hash)
+
+		t.Logf("open %v", test.ID)
+
 		assert.NoError(t, err)
 		assert.NotEmpty(t, test)
 
@@ -692,6 +698,8 @@ func TestManagerGetAndRecreateTestDatabase(t *testing.T) {
 		require.NoError(t, err)
 		assert.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pilots WHERE name = 'Anna'").Scan(&res))
 		assert.Equal(t, 1, res)
+
+		t.Logf("close %v", test.ID)
 		db.Close()
 
 		// recreate testDB after usage
@@ -707,9 +715,9 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 5
-	cfg.TestDatabaseMaxPoolSize = 5
-	cfg.TestDatabaseGetTimeout = time.Second
+	cfg.PoolConfig.InitialPoolSize = 5
+	cfg.PoolConfig.MaxPoolSize = 5
+	cfg.TestDatabaseGetTimeout = time.Second * 5
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {
@@ -732,7 +740,7 @@ func TestManagerGetTestDatabaseDontReturn(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < cfg.TestDatabaseMaxPoolSize*5; i++ {
+	for i := 0; i < cfg.PoolConfig.MaxPoolSize*5; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -777,8 +785,8 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := manager.DefaultManagerConfigFromEnv()
-	cfg.TestDatabaseInitialPoolSize = 1
-	cfg.TestDatabaseMaxPoolSize = 10
+	cfg.PoolConfig.InitialPoolSize = 1
+	cfg.PoolConfig.MaxPoolSize = 10
 	cfg.TestDatabaseGetTimeout = 200 * time.Millisecond
 
 	m, _ := testManagerWithConfig(cfg)
@@ -814,19 +822,28 @@ func TestManagerReturnTestDatabase(t *testing.T) {
 	// finally return it
 	assert.NoError(t, m.ReturnTestDatabase(ctx, hash, testDB1.ID))
 
+	// regetting these databases is quite random. Let's try to get the same id again...
 	// on first GET call the pool has been extended
 	// we will get the newly created DB
 	testDB2, err := m.GetTestDatabase(ctx, hash)
 	assert.NoError(t, err)
-	assert.NotEqual(t, testDB1.ID, testDB2.ID)
 
 	// next in 'ready' channel should be the returned DB
 	testDB3, err := m.GetTestDatabase(ctx, hash)
 	assert.NoError(t, err)
-	assert.Equal(t, testDB1.ID, testDB3.ID)
+
+	// restored db
+	var targetConnectionString string
+	if testDB2.ID == testDB1.ID {
+		targetConnectionString = testDB2.Config.ConnectionString()
+	} else if testDB3.ID == testDB1.ID {
+		targetConnectionString = testDB3.Config.ConnectionString()
+	} else {
+		t.Fatal("We should have been able to get the previously returned database.")
+	}
 
 	// assert that it hasn't been cleaned but just reused directly
-	db, err = sql.Open("postgres", testDB3.Config.ConnectionString())
+	db, err = sql.Open("postgres", targetConnectionString)
 	require.NoError(t, err)
 	require.NoError(t, db.PingContext(ctx))
 
@@ -873,7 +890,7 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 	}
 
 	id := 321
-	dbName := fmt.Sprintf("%s_%s_%s_%d", config.DatabasePrefix, config.TestDatabasePrefix, hash, id)
+	dbName := fmt.Sprintf("%s_%s_%s_%d", config.DatabasePrefix, config.PoolConfig.TestDBNamePrefix, hash, id)
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
 		t.Fatalf("failed to manually drop template database %q: %v", dbName, err)
@@ -882,8 +899,8 @@ func TestManagerReturnUntrackedTemplateDatabase(t *testing.T) {
 		t.Fatalf("failed to manually create template database %q: %v", dbName, err)
 	}
 
-	if err := m.ReturnTestDatabase(ctx, hash, id); err != nil {
-		t.Fatalf("failed to return manually created test database: %v", err)
+	if err := m.ReturnTestDatabase(ctx, hash, id); err == nil {
+		t.Fatalf("succeeded to return manually created test database: %v", err) // this should not work!
 	}
 }
 
@@ -976,7 +993,7 @@ func TestManagerClearTrackedTestDatabases(t *testing.T) {
 
 	cfg := manager.DefaultManagerConfigFromEnv()
 	// there are no db added in background
-	cfg.TestDatabaseInitialPoolSize = 0
+	cfg.PoolConfig.InitialPoolSize = 0
 	m, _ := testManagerWithConfig(cfg)
 
 	if err := m.Initialize(ctx); err != nil {

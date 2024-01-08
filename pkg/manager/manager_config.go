@@ -5,23 +5,23 @@ import (
 	"time"
 
 	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/pool"
 	"github.com/allaboutapps/integresql/pkg/util"
 )
 
-type ManagerConfig struct {
-	ManagerDatabaseConfig    db.DatabaseConfig
+// we explicitly want to access this struct via manager.ManagerConfig, thus we disable revive for the next line
+type ManagerConfig struct { //nolint:revive
+	ManagerDatabaseConfig    db.DatabaseConfig `json:"-"` // sensitive
 	TemplateDatabaseTemplate string
 
-	DatabasePrefix              string
-	TemplateDatabasePrefix      string
-	TestDatabasePrefix          string
-	TestDatabaseOwner           string
-	TestDatabaseOwnerPassword   string
-	TestDatabaseInitialPoolSize int           // Initial number of ready DBs prepared in background
-	TestDatabaseMaxPoolSize     int           // Maximal pool size that won't be exceeded
-	TemplateFinalizeTimeout     time.Duration // Time to wait for a template to transition into the 'finalized' state
-	TestDatabaseGetTimeout      time.Duration // Time to wait for a ready database
-	PoolMaxParallelTasks        int           // Maximal number of pool tasks running in parallel. Must be a number greater or equal 1.
+	DatabasePrefix            string
+	TemplateDatabasePrefix    string
+	TestDatabaseOwner         string
+	TestDatabaseOwnerPassword string        `json:"-"` // sensitive
+	TemplateFinalizeTimeout   time.Duration // Time to wait for a template to transition into the 'finalized' state
+	TestDatabaseGetTimeout    time.Duration // Time to wait for a ready database
+
+	PoolConfig pool.PoolConfig
 }
 
 func DefaultManagerConfigFromEnv() ManagerConfig {
@@ -50,18 +50,20 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		// DatabasePrefix_TemplateDatabasePrefix_HASH
 		TemplateDatabasePrefix: util.GetEnv("INTEGRESQL_TEMPLATE_DB_PREFIX", "template"),
 
-		// DatabasePrefix_TestDatabasePrefix_HASH_ID
-		TestDatabasePrefix: util.GetEnv("INTEGRESQL_TEST_DB_PREFIX", "test"),
-
-		// reuse the same user (PGUSER) and passwort (PGPASSWORT) for the test / template databases by default
+		// we reuse the same user (PGUSER) and passwort (PGPASSWORT) for the test / template databases by default
 		TestDatabaseOwner:         util.GetEnv("INTEGRESQL_TEST_PGUSER", util.GetEnv("INTEGRESQL_PGUSER", util.GetEnv("PGUSER", "postgres"))),
 		TestDatabaseOwnerPassword: util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
-		// TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", 10),
-		TestDatabaseInitialPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", runtime.NumCPU()),
-		// TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", 500),
-		TestDatabaseMaxPoolSize: util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", runtime.NumCPU()*4),
-		TemplateFinalizeTimeout: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 5*60*10e3 /*5 min*/)),
-		TestDatabaseGetTimeout:  time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 1*60*10e3 /*1 min, timeout hardcoded also in GET request handler*/)),
-		PoolMaxParallelTasks:    util.GetEnvAsInt("INTEGRESQL_POOL_MAX_PARALLEL_TASKS", runtime.NumCPU()),
+		TemplateFinalizeTimeout:   time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 5*60*1000 /*5 min*/)),
+		TestDatabaseGetTimeout:    time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 1*60*1000 /*1 min, timeout hardcoded also in GET request handler*/)),
+
+		PoolConfig: pool.PoolConfig{
+			InitialPoolSize:                   util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", runtime.NumCPU()), // previously default 10
+			MaxPoolSize:                       util.GetEnvAsInt("INTEGRESQL_TEST_MAX_POOL_SIZE", runtime.NumCPU()*4),   // previously default 500
+			TestDBNamePrefix:                  util.GetEnv("INTEGRESQL_TEST_DB_PREFIX", "test"),                        // DatabasePrefix_TestDBNamePrefix_HASH_ID
+			MaxParallelTasks:                  util.GetEnvAsInt("INTEGRESQL_POOL_MAX_PARALLEL_TASKS", runtime.NumCPU()),
+			TestDatabaseRetryRecreateSleepMin: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_RETRY_RECREATE_SLEEP_MIN_MS", 250 /*250 ms*/)),
+			TestDatabaseRetryRecreateSleepMax: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_RETRY_RECREATE_SLEEP_MAX_MS", 1000*3 /*3 sec*/)),
+			TestDatabaseMinimalLifetime:       time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_MINIMAL_LIFETIME_MS", 250 /*250 ms*/)),
+		},
 	}
 }

@@ -13,14 +13,21 @@ import (
 
 var ErrUnknownHash = errors.New("no database pool exists for this hash")
 
-type PoolConfig struct {
-	MaxPoolSize          int
-	InitialPoolSize      int
-	TestDBNamePrefix     string
-	PoolMaxParallelTasks int
+// we explicitly want to access this struct via pool.PoolConfig, thus we disable revive for the next line
+type PoolConfig struct { //nolint:revive
+	InitialPoolSize                   int           // Initial number of ready DBs prepared in background
+	MaxPoolSize                       int           // Maximal pool size that won't be exceeded
+	TestDBNamePrefix                  string        // Test-Database prefix: DatabasePrefix_TestDBNamePrefix_HASH_ID
+	MaxParallelTasks                  int           // Maximal number of pool tasks running in parallel. Must be a number greater or equal 1.
+	TestDatabaseRetryRecreateSleepMin time.Duration // Minimal time to wait after a test db recreate has failed (e.g. as client is still connected). Subsequent retries multiply this values until...
+	TestDatabaseRetryRecreateSleepMax time.Duration // ... the maximum possible sleep time between retries (e.g. 3 seconds) is reached.
+	TestDatabaseMinimalLifetime       time.Duration // After a testdatabase transitions from ready to dirty, always block auto-recreation for this duration (except manual recreate).
+
+	disableWorkerAutostart bool // test only private flag for starting without background worker task system
 }
 
-type PoolCollection struct {
+// we explicitly want to access this struct via pool.PoolCollection, thus we disable revive for the next line
+type PoolCollection struct { //nolint:revive
 	PoolConfig
 
 	pools map[string]*HashPool // map[hash]
@@ -51,7 +58,7 @@ func makeActualRecreateTestDBFunc(templateName string, userRecreateFunc Recreate
 type recreateTestDBFunc func(context.Context, *existingDB) error
 
 // InitHashPool creates a new pool with a given template hash and starts the cleanup workers.
-func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
+func (p *PoolCollection) InitHashPool(_ context.Context, templateDB db.Database, initDBFunc RecreateDBFunc) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -59,10 +66,23 @@ func (p *PoolCollection) InitHashPool(ctx context.Context, templateDB db.Databas
 
 	// Create a new HashPool
 	pool := NewHashPool(cfg, templateDB, initDBFunc)
-	pool.Start()
+
+	if !cfg.disableWorkerAutostart {
+		pool.Start()
+	}
 
 	// pool is ready
 	p.pools[pool.templateDB.TemplateHash] = pool
+}
+
+// Start is used to start all background workers
+func (p *PoolCollection) Start() {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	for _, pool := range p.pools {
+		pool.Start()
+	}
 }
 
 // Stop is used to stop all background workers
@@ -73,7 +93,6 @@ func (p *PoolCollection) Stop() {
 	for _, pool := range p.pools {
 		pool.Stop()
 	}
-
 }
 
 // GetTestDatabase picks up a ready to use test DB. It waits the given timeout until a DB is available.
@@ -86,21 +105,7 @@ func (p *PoolCollection) GetTestDatabase(ctx context.Context, hash string, timeo
 		return db, err
 	}
 
-	return pool.GetTestDatabase(ctx, hash, timeout)
-}
-
-// AddTestDatabase adds a new test DB to the pool and creates it according to the template.
-// The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
-// If the pool size has already reached MAX, ErrPoolFull is returned.
-func (p *PoolCollection) AddTestDatabase(ctx context.Context, templateDB db.Database) error {
-	hash := templateDB.TemplateHash
-
-	pool, err := p.getPool(ctx, hash)
-	if err != nil {
-		return err
-	}
-
-	return pool.AddTestDatabase(ctx, templateDB)
+	return pool.GetTestDatabase(ctx, timeout)
 }
 
 // ReturnTestDatabase returns the given test DB directly to the pool, without cleaning (recreating it).
@@ -110,7 +115,7 @@ func (p *PoolCollection) ReturnTestDatabase(ctx context.Context, hash string, id
 		return err
 	}
 
-	return pool.ReturnTestDatabase(ctx, hash, id)
+	return pool.ReturnTestDatabase(ctx, id)
 }
 
 // RecreateTestDatabase recreates the test DB according to the template and returns it back to the pool.
@@ -120,7 +125,7 @@ func (p *PoolCollection) RecreateTestDatabase(ctx context.Context, hash string, 
 		return err
 	}
 
-	return pool.RecreateTestDatabase(ctx, hash, id)
+	return pool.RecreateTestDatabase(ctx, id)
 }
 
 // RemoveAllWithHash removes a pool with a given template hash.
@@ -200,4 +205,19 @@ func (p *PoolCollection) getPoolLockCollection(ctx context.Context, hash string)
 	}
 
 	return pool, unlock, err
+}
+
+// extend is only used for internal testing!
+// it adds a new test DB to the pool and creates it according to the template.
+// The new test DB is marked as 'Ready' and can be picked up with GetTestDatabase.
+// If the pool size has already reached MAX, ErrPoolFull is returned.
+func (p *PoolCollection) extend(ctx context.Context, templateDB db.Database) error {
+	hash := templateDB.TemplateHash
+
+	pool, err := p.getPool(ctx, hash)
+	if err != nil {
+		return err
+	}
+
+	return pool.extend(ctx)
 }

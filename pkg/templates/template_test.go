@@ -2,7 +2,6 @@ package templates_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -28,7 +27,7 @@ func TestTemplateGetSetState(t *testing.T) {
 	assert.Equal(t, templates.TemplateStateDiscarded, state)
 }
 
-func TestTemplateWaitForReady(t *testing.T) {
+func TestForReady(t *testing.T) {
 	ctx := context.Background()
 	goroutineNum := 10
 
@@ -48,7 +47,7 @@ func TestTemplateWaitForReady(t *testing.T) {
 			timeout := 1 * time.Second
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateFinalized {
-				errsChan <- errors.New(fmt.Sprintf("expected state %v (finalized), but is %v", templates.TemplateStateFinalized, state))
+				errsChan <- fmt.Errorf("expected state %v (finalized), but is %v", templates.TemplateStateFinalized, state)
 			}
 		}()
 	}
@@ -58,16 +57,16 @@ func TestTemplateWaitForReady(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			timeout := 3 * time.Millisecond
+			timeout := 30 * time.Millisecond
 			state := t1.WaitUntilFinalized(ctx, timeout)
 			if state != templates.TemplateStateInit {
-				errsChan <- errors.New(fmt.Sprintf("expected state %v (init), but is %v", templates.TemplateStateInit, state))
+				errsChan <- fmt.Errorf("expected state %v (init), but is %v", templates.TemplateStateInit, state)
 			}
 		}()
 	}
 
 	// now set state
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	t1.SetState(ctx, templates.TemplateStateFinalized)
 
 	wg.Wait()

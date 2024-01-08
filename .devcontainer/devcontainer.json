@@ -14,9 +14,11 @@
 	// The optional 'workspaceFolder' property is the path VS Code should open by default when
 	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
 	"workspaceFolder": "/app",
-	// Set *default* container specific settings.json values on container create.
+	// All containers should stop if we close / reload the VSCode window.
+	"shutdownAction": "stopCompose",
 	"customizations": {
 		"vscode": {
+			// Set *default* container specific settings.json values on container create.
 			"settings": {
 				// https://github.com/golang/tools/blob/master/gopls/doc/vscode.md#vscode
 				"go.useLanguageServer": true,
@@ -45,6 +47,8 @@
 					// DISABLED, done via
 					"staticcheck": false,
 				},
+				// https://code.visualstudio.com/docs/languages/go#_intellisense
+				"go.autocompleteUnimportedPackages": true,
 				// https://github.com/golangci/golangci-lint#editor-integration
 				"go.lintTool": "golangci-lint",
 				"go.lintFlags": [
@@ -69,30 +73,6 @@
 				},
 				// ensure that the pgFormatter VSCode extension uses the pgFormatter that comes preinstalled in the Dockerfile
 				"pgFormatter.pgFormatterPath": "/usr/local/bin/pg_format"
-				// "go.lintOnSave": "workspace"
-				// general build settings in sync with our makefile
-				// "go.buildFlags": [
-				// 	"-o",
-				// 	"bin/app"
-				// ]
-				// "sqltools.connections": [
-				// 	{
-				// 		"database": "sample",
-				// 		"dialect": "PostgreSQL",
-				// 		"name": "postgres",
-				// 		"password": "9bed16f749d74a3c8bfbced18a7647f5",
-				// 		"port": 5432,
-				// 		"server": "postgres",
-				// 		"username": "dbuser"
-				// 	}
-				// ],
-				// "sqltools.autoConnectTo": [
-				// 	"postgres"
-				// ],
-				// // only use pg_format to actually format!
-				// "sqltools.formatLanguages": [],
-				// "sqltools.telemetry": false,
-				// "sqltools.autoOpenSessionFiles": false
 			},
 			// Add the IDs of extensions you want installed when the container is created.
 			"extensions": [
@@ -100,12 +80,12 @@
 				"golang.go",
 				"bradymholt.pgformatter",
 				// optional:
-				// "766b.go-outliner",
+				"42crunch.vscode-openapi",
 				"heaths.vscode-guid",
 				"bungcip.better-toml",
 				"eamodio.gitlens",
-				"casualjim.gotemplate"
-				// "mtxr.sqltools",
+				"casualjim.gotemplate",
+				"yzhang.markdown-all-in-one"
 			]
 		}
 	},
@@ -115,6 +95,7 @@
 	// "shutdownAction": "none",
 	// Uncomment the next line to run commands after the container is created - for example installing git.
 	"postCreateCommand": "go version",
+	// "postCreateCommand": "apt-get update && apt-get install -y git",
 	// Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
-	"remoteUser": "development"
+	// "remoteUser": ""
 }

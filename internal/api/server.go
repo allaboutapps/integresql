@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	// #nosec G108 - pprof handlers (conditionally made available via http.DefaultServeMux within router)
 	_ "net/http/pprof"
 
 	"github.com/allaboutapps/integresql/pkg/manager"

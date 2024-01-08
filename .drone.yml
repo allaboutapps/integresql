@@ -30,7 +30,7 @@ alias:
   - &IMAGE_DEPLOY_ID ${DRONE_REPO,,}:${DRONE_COMMIT_SHA}
 
   # Defines which branches will trigger a docker image push our Google Cloud Registry (tags are always published)
-  - &GCR_PUBLISH_BRANCHES [dev, master, aj/pooling-improvements]
+  - &GCR_PUBLISH_BRANCHES [dev, master, aj/pooling-improvements, mr/aj-review]
 
   # Docker registry publish default settings
   - &GCR_REGISTRY_SETTINGS
@@ -133,7 +133,7 @@ pipeline:
     environment:
       IMAGE_TAG: *IMAGE_BUILDER_ID
     commands:
-      - "docker build --target builder-integresql --compress -t $${IMAGE_TAG} ."
+      - "docker build --target builder --compress -t $${IMAGE_TAG} ."
     <<: *WHEN_BUILD_EVENT
 
   "docker build (target integresql)":

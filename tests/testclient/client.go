@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/allaboutapps/integresql/pkg/manager"
 	"github.com/allaboutapps/integresql/pkg/util"
+
+	// Import postgres driver for database/sql package
 	_ "github.com/lib/pq"
 )
 
@@ -124,7 +127,7 @@ func (c *Client) SetupTemplate(ctx context.Context, hash string, init func(conn 
 		}
 
 		return c.FinalizeTemplate(ctx, hash)
-	} else if err == manager.ErrTemplateAlreadyInitialized {
+	} else if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 		return nil
 	} else {
 		return err
