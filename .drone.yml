@@ -132,12 +132,13 @@ pipeline:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     settings:
-      repo: eu.gcr.io/a3cloud-192413/${DRONE_REPO,,}
+      repo: eu.gcr.io/a3cloud-192413/${DRONE_REPO,,}-builder
       registry: eu.gcr.io
       target: builder
       compress: true
       platforms: linux/amd64,linux/arm64/v8
-      tags: *IMAGE_BUILDER_ID
+      tags:
+        - ${DRONE_COMMIT_SHA}
       dry-run: true
 
   # "docker build (target builder)":
@@ -163,7 +164,8 @@ pipeline:
       target: integresql
       compress: true
       platforms: linux/amd64,linux/arm64/v8
-      tags: *IMAGE_DEPLOY_ID
+      tags:
+        - *IMAGE_DEPLOY_TAG
       dry-run: true
 
   # "docker build (target integresql)":
