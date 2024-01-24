@@ -202,3 +202,5 @@ COPY --from=builder /app/bin/integresql /
 # see https://github.com/GoogleContainerTools/distroless/issues/62
 # and https://github.com/GoogleContainerTools/distroless#entrypoints
 ENTRYPOINT [ "/integresql" ]
+
+EXPOSE 5000
