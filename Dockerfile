@@ -4,7 +4,7 @@
 # --- https://hub.docker.com/_/golang
 # --- https://github.com/microsoft/vscode-remote-try-go/blob/master/.devcontainer/Dockerfile
 ### -----------------------
-FROM golang:1.21.5-bullseye AS development
+FROM golang:1.21.6-bullseye AS development
 
 # Avoid warnings by switching to noninteractive
 ENV DEBIAN_FRONTEND=noninteractive
@@ -128,7 +128,7 @@ RUN mkdir -p /tmp/watchexec \
 RUN mkdir -p /tmp/yq \
     && cd /tmp/yq \
     && ARCH="$(arch | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)" \
-    && wget "https://github.com/mikefarah/yq/releases/download/v4.30.5/yq_linux_${ARCH}.tar.gz" \
+    && wget "https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_${ARCH}.tar.gz" \
     && tar xzf "yq_linux_${ARCH}.tar.gz" \
     && cp "yq_linux_${ARCH}" /usr/local/bin/yq \
     && rm -rf /tmp/yq

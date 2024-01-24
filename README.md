@@ -7,6 +7,16 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
 [![](https://img.shields.io/docker/image-size/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![](https://img.shields.io/docker/pulls/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
 
 - [IntegreSQL](#integresql)
+      - [Integrate by client lib](#integrate-by-client-lib)
+      - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
+      - [Demo](#demo)
+  - [Install](#install)
+    - [Install using Docker (preferred)](#install-using-docker-preferred)
+    - [Install locally](#install-locally)
+  - [Configuration](#configuration)
+  - [Usage](#usage)
+    - [Run using Docker (preferred)](#run-using-docker-preferred)
+    - [Run locally](#run-locally)
   - [Background](#background)
     - [Approach 0: Leaking database mutations for subsequent tests](#approach-0-leaking-database-mutations-for-subsequent-tests)
     - [Approach 1: Isolating by resetting](#approach-1-isolating-by-resetting)
@@ -18,22 +28,157 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
       - [Approach 3c benchmark 1: Baseline](#approach-3c-benchmark-1-baseline)
       - [Approach 3c benchmark 2: Small project](#approach-3c-benchmark-2-small-project)
     - [Final approach: IntegreSQL](#final-approach-integresql)
-      - [Integrate by client lib](#integrate-by-client-lib)
-      - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
-      - [Demo](#demo)
-  - [Install](#install)
-    - [Install using Docker (preferred)](#install-using-docker-preferred)
-    - [Install locally](#install-locally)
-  - [Configuration](#configuration)
-  - [Usage](#usage)
-    - [Run using Docker (preferred)](#run-using-docker-preferred)
-    - [Run locally](#run-locally)
   - [Contributing](#contributing)
     - [Development setup](#development-setup)
     - [Development quickstart](#development-quickstart)
   - [Maintainers](#maintainers)
   - [Previous maintainers](#previous-maintainers)
   - [License](#license)
+
+#### Integrate by client lib
+
+The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
+
+* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
+* Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
+* .NET: [IntegreSQL.EF](https://github.com/mcctomsk/IntegreSql.EF) by [Artur Drobinskiy - @Shaddix](https://github.com/Shaddix)
+* JavaScript/TypeScript: [@devoxa/integresql-client](https://github.com/devoxa/integresql-client) by [Devoxa - @devoxa](https://github.com/devoxa)
+* ... *Add your link here and make a PR*
+
+#### Integrate by RESTful JSON calls
+
+A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
+
+#### Demo
+
+If you want to take a look on how we integrate IntegreSQL - 🤭 - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [test_database setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/test_database.go). 
+
+## Install
+
+### Install using Docker (preferred)
+
+A minimal Docker image containing a pre-built `IntegreSQL` executable is available at [Docker Hub](https://hub.docker.com/r/allaboutapps/integresql).
+
+```bash
+docker pull allaboutapps/integresql
+```
+
+### Install locally
+
+Installing `IntegreSQL` locally requires a working [Go](https://golang.org/dl/) (1.14 or above) environment. Install the `IntegreSQL` executable to your Go bin folder:
+
+```bash
+go get github.com/allaboutapps/integresql/cmd/server
+```
+
+## Configuration
+
+`IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
+
+| Description                                                       | Environment variable                  | Default              | Required |
+| ----------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
+| IntegreSQL: listen address (defaults to all if empty)             | `INTEGRESQL_ADDRESS`                  | `""`                 |          |
+| IntegreSQL: port                                                  | `INTEGRESQL_PORT`                     | `5000`               |          |
+| PostgreSQL: host                                                  | `INTEGRESQL_PGHOST`, `PGHOST`         | `"127.0.0.1"`        | Yes      |
+| PostgreSQL: port                                                  | `INTEGRESQL_PGPORT`, `PGPORT`         | `5432`               |          |
+| PostgreSQL: username                                              | `INTEGRESQL_PGUSER`, `PGUSER`, `USER` | `"postgres"`         | Yes      |
+| PostgreSQL: password                                              | `INTEGRESQL_PGPASSWORD`, `PGPASSWORD` | `""`                 | Yes      |
+| PostgreSQL: database for manager                                  | `INTEGRESQL_PGDATABASE`               | `"postgres"`         |          |
+| PostgreSQL: template database to use                              | `INTEGRESQL_ROOT_TEMPLATE`            | `"template0"`        |          |
+| Managed databases: prefix                                         | `INTEGRESQL_DB_PREFIX`                | `"integresql"`       |          |
+| Managed *template* databases: prefix `integresql_template_<HASH>` | `INTEGRESQL_TEMPLATE_DB_PREFIX`       | `"template"`         |          |
+| Managed *test* databases: prefix `integresql_test_<HASH>_<ID>`    | `INTEGRESQL_TEST_DB_PREFIX`           | `"test"`             |          |
+| Managed *test* databases: username                                | `INTEGRESQL_TEST_PGUSER`              | PostgreSQL: username |          |
+| Managed *test* databases: password                                | `INTEGRESQL_TEST_PGPASSWORD`          | PostgreSQL: password |          |
+| Managed *test* databases: minimal test pool size                  | `INTEGRESQL_TEST_INITIAL_POOL_SIZE`   | `10`                 |          |
+| Managed *test* databases: maximal test pool size                  | `INTEGRESQL_TEST_MAX_POOL_SIZE`       | `500`                |          |
+
+
+## Usage
+
+### Run using Docker (preferred)
+
+Simply start the `IntegreSQL` [Docker](https://docs.docker.com/install/) (19.03 or above) container, provide the required environment variables and expose the server port:
+
+```bash
+docker run -d --name integresql -e INTEGRESQL_PORT=5000 -p 5000:5000 allaboutapps/integresql
+```
+
+`IntegreSQL` can also be included in your project via [Docker Compose](https://docs.docker.com/compose/install/) (1.25 or above):
+
+```yaml
+version: "3.4"
+services:
+
+  # Your main service image
+  service:
+    depends_on:
+      - postgres
+      - integresql
+    environment:
+      PGDATABASE: &PGDATABASE "development"
+      PGUSER: &PGUSER "dbuser"
+      PGPASSWORD: &PGPASSWORD "9bed16f749d74a3c8bfbced18a7647f5"
+      PGHOST: &PGHOST "postgres"
+      PGPORT: &PGPORT "5432"
+      PGSSLMODE: &PGSSLMODE "disable"
+
+      # optional: env for integresql client testing
+      # see https://github.com/allaboutapps/integresql-client-go
+      # INTEGRESQL_CLIENT_BASE_URL: "http://integresql:5000/api"
+
+      # [...] additional main service setup
+
+  integresql:
+    image: allaboutapps/integresql:1.0.0
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+    environment: 
+      PGHOST: *PGHOST
+      PGUSER: *PGUSER
+      PGPASSWORD: *PGPASSWORD
+
+  postgres:
+    image: postgres:12.2-alpine # should be the same version as used live
+    # ATTENTION
+    # fsync=off, synchronous_commit=off and full_page_writes=off
+    # gives us a major speed up during local development and testing (~30%),
+    # however you should NEVER use these settings in PRODUCTION unless
+    # you want to have CORRUPTED data.
+    # DO NOT COPY/PASTE THIS BLINDLY.
+    # YOU HAVE BEEN WARNED.
+    # Apply some performance improvements to pg as these guarantees are not needed while running locally
+    command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: *PGDATABASE
+      POSTGRES_USER: *PGUSER
+      POSTGRES_PASSWORD: *PGPASSWORD
+    volumes:
+      - pgvolume:/var/lib/postgresql/data
+
+volumes:
+  pgvolume: # declare a named volume to persist DB data
+```
+
+You may also refer to our [go-starter `docker-compose.yml`](https://github.com/allaboutapps/go-starter/blob/master/docker-compose.yml).
+
+### Run locally
+
+Running the `IntegreSQL` server locally requires configuration via exported environment variables (see below):
+
+```bash
+export INTEGRESQL_PORT=5000
+export PGHOST=127.0.0.1
+export PGUSER=test
+export PGPASSWORD=testpass
+integresql
+```
 
 ## Background
 
@@ -263,150 +408,6 @@ Our flow now finally changed to this:
 * ...
 * Subsequent 1..n test runners start/end in parallel and reuse the above logic
 
-#### Integrate by client lib
-
-The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
-
-* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
-* Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
-* .NET: [IntegreSQL.EF](https://github.com/mcctomsk/IntegreSql.EF) by [Artur Drobinskiy - @Shaddix](https://github.com/Shaddix)
-* JavaScript/TypeScript: [@devoxa/integresql-client](https://github.com/devoxa/integresql-client) by [Devoxa - @devoxa](https://github.com/devoxa)
-* ... *Add your link here and make a PR*
-
-#### Integrate by RESTful JSON calls
-
-A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
-
-#### Demo
-
-If you want to take a look on how we integrate IntegreSQL - 🤭 - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [testing setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/testing.go). 
-
-## Install
-
-### Install using Docker (preferred)
-
-A minimal Docker image containing a pre-built `IntegreSQL` executable is available at [Docker Hub](https://hub.docker.com/r/allaboutapps/integresql).
-
-```bash
-docker pull allaboutapps/integresql
-```
-
-### Install locally
-
-Installing `IntegreSQL` locally requires a working [Go](https://golang.org/dl/) (1.14 or above) environment. Install the `IntegreSQL` executable to your Go bin folder:
-
-```bash
-go get github.com/allaboutapps/integresql/cmd/server
-```
-
-## Configuration
-
-`IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
-
-| Description                                                       | Environment variable                  | Default              | Required |
-| ----------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
-| IntegreSQL: listen address (defaults to all if empty)             | `INTEGRESQL_ADDRESS`                  | `""`                 |          |
-| IntegreSQL: port                                                  | `INTEGRESQL_PORT`                     | `5000`               |          |
-| PostgreSQL: host                                                  | `INTEGRESQL_PGHOST`, `PGHOST`         | `"127.0.0.1"`        | Yes      |
-| PostgreSQL: port                                                  | `INTEGRESQL_PGPORT`, `PGPORT`         | `5432`               |          |
-| PostgreSQL: username                                              | `INTEGRESQL_PGUSER`, `PGUSER`, `USER` | `"postgres"`         | Yes      |
-| PostgreSQL: password                                              | `INTEGRESQL_PGPASSWORD`, `PGPASSWORD` | `""`                 | Yes      |
-| PostgreSQL: database for manager                                  | `INTEGRESQL_PGDATABASE`               | `"postgres"`         |          |
-| PostgreSQL: template database to use                              | `INTEGRESQL_ROOT_TEMPLATE`            | `"template0"`        |          |
-| Managed databases: prefix                                         | `INTEGRESQL_DB_PREFIX`                | `"integresql"`       |          |
-| Managed *template* databases: prefix `integresql_template_<HASH>` | `INTEGRESQL_TEMPLATE_DB_PREFIX`       | `"template"`         |          |
-| Managed *test* databases: prefix `integresql_test_<HASH>_<ID>`    | `INTEGRESQL_TEST_DB_PREFIX`           | `"test"`             |          |
-| Managed *test* databases: username                                | `INTEGRESQL_TEST_PGUSER`              | PostgreSQL: username |          |
-| Managed *test* databases: password                                | `INTEGRESQL_TEST_PGPASSWORD`          | PostgreSQL: password |          |
-| Managed *test* databases: minimal test pool size                  | `INTEGRESQL_TEST_INITIAL_POOL_SIZE`   | `10`                 |          |
-| Managed *test* databases: maximal test pool size                  | `INTEGRESQL_TEST_MAX_POOL_SIZE`       | `500`                |          |
-
-
-## Usage
-
-### Run using Docker (preferred)
-
-Simply start the `IntegreSQL` [Docker](https://docs.docker.com/install/) (19.03 or above) container, provide the required environment variables and expose the server port:
-
-```bash
-docker run -d --name integresql -e INTEGRESQL_PORT=5000 -p 5000:5000 allaboutapps/integresql
-```
-
-`IntegreSQL` can also be included in your project via [Docker Compose](https://docs.docker.com/compose/install/) (1.25 or above):
-
-```yaml
-version: "3.4"
-services:
-
-  # Your main service image
-  service:
-    depends_on:
-      - postgres
-      - integresql
-    environment:
-      PGDATABASE: &PGDATABASE "development"
-      PGUSER: &PGUSER "dbuser"
-      PGPASSWORD: &PGPASSWORD "9bed16f749d74a3c8bfbced18a7647f5"
-      PGHOST: &PGHOST "postgres"
-      PGPORT: &PGPORT "5432"
-      PGSSLMODE: &PGSSLMODE "disable"
-
-      # optional: env for integresql client testing
-      # see https://github.com/allaboutapps/integresql-client-go
-      # INTEGRESQL_CLIENT_BASE_URL: "http://integresql:5000/api"
-
-      # [...] additional main service setup
-
-  integresql:
-    image: allaboutapps/integresql:1.0.0
-    ports:
-      - "5000:5000"
-    depends_on:
-      - postgres
-    environment: 
-      PGHOST: *PGHOST
-      PGUSER: *PGUSER
-      PGPASSWORD: *PGPASSWORD
-
-  postgres:
-    image: postgres:12.2-alpine # should be the same version as used live
-    # ATTENTION
-    # fsync=off, synchronous_commit=off and full_page_writes=off
-    # gives us a major speed up during local development and testing (~30%),
-    # however you should NEVER use these settings in PRODUCTION unless
-    # you want to have CORRUPTED data.
-    # DO NOT COPY/PASTE THIS BLINDLY.
-    # YOU HAVE BEEN WARNED.
-    # Apply some performance improvements to pg as these guarantees are not needed while running locally
-    command: "postgres -c 'shared_buffers=128MB' -c 'fsync=off' -c 'synchronous_commit=off' -c 'full_page_writes=off' -c 'max_connections=100' -c 'client_min_messages=warning'"
-    expose:
-      - "5432"
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: *PGDATABASE
-      POSTGRES_USER: *PGUSER
-      POSTGRES_PASSWORD: *PGPASSWORD
-    volumes:
-      - pgvolume:/var/lib/postgresql/data
-
-volumes:
-  pgvolume: # declare a named volume to persist DB data
-```
-
-You may also refer to our [go-starter `docker-compose.yml`](https://github.com/allaboutapps/go-starter/blob/master/docker-compose.yml).
-
-### Run locally
-
-Running the `IntegreSQL` server locally requires configuration via exported environment variables (see below):
-
-```bash
-export INTEGRESQL_PORT=5000
-export PGHOST=127.0.0.1
-export PGUSER=test
-export PGPASSWORD=testpass
-integresql
-```
 
 ## Contributing
 
@@ -458,9 +459,9 @@ integresql
 
 - [Mario Ranftl - @majodev](https://github.com/majodev)
 
-## Previous maintainers
+### Previous maintainers
 
-- [Anna Jankowska - @anjankow](https://github.com/anjankow)
+- [Anna - @anjankow](https://github.com/anjankow)
 - [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
 
 ## License
