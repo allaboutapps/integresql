@@ -157,6 +157,10 @@ func (m Manager) Ready() bool {
 	return m.db != nil
 }
 
+func (m Manager) Config() ManagerConfig {
+	return m.config
+}
+
 func (m *Manager) Initialize(ctx context.Context) error {
 
 	log := m.getManagerLogger(ctx, "Initialize")

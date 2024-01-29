@@ -61,6 +61,12 @@ func Init(s *api.Server) {
 		log.Warn().Msg("Disabling logger middleware due to environment config")
 	}
 
+	if s.Config.Echo.EnableTimeoutMiddleware {
+		s.Echo.Use(echoMiddleware.TimeoutWithConfig(echoMiddleware.TimeoutConfig{
+			Timeout: s.Config.Echo.RequestTimeout,
+		}))
+	}
+
 	// enable debug endpoints only if requested
 	if s.Config.DebugEndpoints {
 		s.Echo.GET("/debug/*", echo.WrapHandler(http.DefaultServeMux))

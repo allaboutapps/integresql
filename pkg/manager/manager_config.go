@@ -53,8 +53,11 @@ func DefaultManagerConfigFromEnv() ManagerConfig {
 		// we reuse the same user (PGUSER) and passwort (PGPASSWORT) for the test / template databases by default
 		TestDatabaseOwner:         util.GetEnv("INTEGRESQL_TEST_PGUSER", util.GetEnv("INTEGRESQL_PGUSER", util.GetEnv("PGUSER", "postgres"))),
 		TestDatabaseOwnerPassword: util.GetEnv("INTEGRESQL_TEST_PGPASSWORD", util.GetEnv("INTEGRESQL_PGPASSWORD", util.GetEnv("PGPASSWORD", ""))),
-		TemplateFinalizeTimeout:   time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", 5*60*1000 /*5 min*/)),
-		TestDatabaseGetTimeout:    time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", 1*60*1000 /*1 min, timeout hardcoded also in GET request handler*/)),
+
+		// typically these timeouts should be the same as INTEGRESQL_ECHO_REQUEST_TIMEOUT_MS
+		// see internal/api/server_config.go
+		TemplateFinalizeTimeout: time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS", util.GetEnvAsInt("INTEGRESQL_ECHO_REQUEST_TIMEOUT_MS", 60*1000 /*1 min*/))),
+		TestDatabaseGetTimeout:  time.Millisecond * time.Duration(util.GetEnvAsInt("INTEGRESQL_TEST_DB_GET_TIMEOUT_MS", util.GetEnvAsInt("INTEGRESQL_ECHO_REQUEST_TIMEOUT_MS", 60*1000 /*1 min*/))),
 
 		PoolConfig: pool.PoolConfig{
 			InitialPoolSize:                   util.GetEnvAsInt("INTEGRESQL_TEST_INITIAL_POOL_SIZE", runtime.NumCPU()), // previously default 10

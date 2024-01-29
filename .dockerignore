@@ -6,3 +6,4 @@
 Dockerfile
 docker-compose.*
 docker-helper.sh
+docs

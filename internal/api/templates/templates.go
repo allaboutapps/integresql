@@ -1,11 +1,9 @@
 package templates
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/allaboutapps/integresql/internal/api"
 	"github.com/allaboutapps/integresql/pkg/manager"
@@ -29,10 +27,7 @@ func postInitializeTemplate(s *api.Server) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusBadRequest, "hash is required")
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
-		defer cancel()
-
-		template, err := s.Manager.InitializeTemplateDatabase(ctx, payload.Hash)
+		template, err := s.Manager.InitializeTemplateDatabase(c.Request().Context(), payload.Hash)
 		if err != nil {
 			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
@@ -52,10 +47,7 @@ func putFinalizeTemplate(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
-
-		if _, err := s.Manager.FinalizeTemplateDatabase(ctx, hash); err != nil {
+		if _, err := s.Manager.FinalizeTemplateDatabase(c.Request().Context(), hash); err != nil {
 			if errors.Is(err, manager.ErrTemplateAlreadyInitialized) {
 				// template is initialized, we ignore this error
 				return c.NoContent(http.StatusNoContent)
@@ -77,10 +69,7 @@ func deleteDiscardTemplate(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
-
-		if err := s.Manager.DiscardTemplateDatabase(ctx, hash); err != nil {
+		if err := s.Manager.DiscardTemplateDatabase(c.Request().Context(), hash); err != nil {
 			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
 			} else if errors.Is(err, manager.ErrTemplateNotFound) {
@@ -96,13 +85,11 @@ func deleteDiscardTemplate(s *api.Server) echo.HandlerFunc {
 }
 
 func getTestDatabase(s *api.Server) echo.HandlerFunc {
+
 	return func(c echo.Context) error {
 		hash := c.Param("hash")
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 1*time.Minute)
-		defer cancel()
-
-		test, err := s.Manager.GetTestDatabase(ctx, hash)
+		test, err := s.Manager.GetTestDatabase(c.Request().Context(), hash)
 		if err != nil {
 
 			if errors.Is(err, manager.ErrManagerNotReady) {
@@ -134,10 +121,7 @@ func postUnlockTestDatabase(s *api.Server) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid test database ID")
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
-
-		if err := s.Manager.ReturnTestDatabase(ctx, hash, id); err != nil {
+		if err := s.Manager.ReturnTestDatabase(c.Request().Context(), hash, id); err != nil {
 			if errors.Is(err, manager.ErrManagerNotReady) {
 				return echo.ErrServiceUnavailable
 			} else if errors.Is(err, manager.ErrTemplateNotFound) {

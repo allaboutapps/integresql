@@ -35,32 +35,14 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
   - [Previous maintainers](#previous-maintainers)
   - [License](#license)
 
-#### Integrate by client lib
-
-The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
-
-* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
-* Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
-* .NET: [IntegreSQL.EF](https://github.com/mcctomsk/IntegreSql.EF) by [Artur Drobinskiy - @Shaddix](https://github.com/Shaddix)
-* JavaScript/TypeScript: [@devoxa/integresql-client](https://github.com/devoxa/integresql-client) by [Devoxa - @devoxa](https://github.com/devoxa)
-* ... *Add your link here and make a PR*
-
-#### Integrate by RESTful JSON calls
-
-A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
-
-#### Demo
-
-If you want to take a look on how we integrate IntegreSQL - 🤭 - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [test_database setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/test_database.go). 
-
 ## Install
 
 ### Install using Docker (preferred)
 
-A minimal Docker image containing a pre-built `IntegreSQL` executable is available at [Docker Hub](https://hub.docker.com/r/allaboutapps/integresql).
+A minimal Docker image containing a pre-built `IntegreSQL` executable is available at [Github Packages](https://github.com/allaboutapps/integresql/releases).
 
 ```bash
-docker pull allaboutapps/integresql
+docker pull ghcr.io/allaboutapps/integresql
 ```
 
 ### Install locally
@@ -70,29 +52,6 @@ Installing `IntegreSQL` locally requires a working [Go](https://golang.org/dl/) 
 ```bash
 go get github.com/allaboutapps/integresql/cmd/server
 ```
-
-## Configuration
-
-`IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
-
-| Description                                                       | Environment variable                  | Default              | Required |
-| ----------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
-| IntegreSQL: listen address (defaults to all if empty)             | `INTEGRESQL_ADDRESS`                  | `""`                 |          |
-| IntegreSQL: port                                                  | `INTEGRESQL_PORT`                     | `5000`               |          |
-| PostgreSQL: host                                                  | `INTEGRESQL_PGHOST`, `PGHOST`         | `"127.0.0.1"`        | Yes      |
-| PostgreSQL: port                                                  | `INTEGRESQL_PGPORT`, `PGPORT`         | `5432`               |          |
-| PostgreSQL: username                                              | `INTEGRESQL_PGUSER`, `PGUSER`, `USER` | `"postgres"`         | Yes      |
-| PostgreSQL: password                                              | `INTEGRESQL_PGPASSWORD`, `PGPASSWORD` | `""`                 | Yes      |
-| PostgreSQL: database for manager                                  | `INTEGRESQL_PGDATABASE`               | `"postgres"`         |          |
-| PostgreSQL: template database to use                              | `INTEGRESQL_ROOT_TEMPLATE`            | `"template0"`        |          |
-| Managed databases: prefix                                         | `INTEGRESQL_DB_PREFIX`                | `"integresql"`       |          |
-| Managed *template* databases: prefix `integresql_template_<HASH>` | `INTEGRESQL_TEMPLATE_DB_PREFIX`       | `"template"`         |          |
-| Managed *test* databases: prefix `integresql_test_<HASH>_<ID>`    | `INTEGRESQL_TEST_DB_PREFIX`           | `"test"`             |          |
-| Managed *test* databases: username                                | `INTEGRESQL_TEST_PGUSER`              | PostgreSQL: username |          |
-| Managed *test* databases: password                                | `INTEGRESQL_TEST_PGPASSWORD`          | PostgreSQL: password |          |
-| Managed *test* databases: minimal test pool size                  | `INTEGRESQL_TEST_INITIAL_POOL_SIZE`   | `10`                 |          |
-| Managed *test* databases: maximal test pool size                  | `INTEGRESQL_TEST_MAX_POOL_SIZE`       | `500`                |          |
-
 
 ## Usage
 
@@ -179,6 +138,97 @@ export PGUSER=test
 export PGPASSWORD=testpass
 integresql
 ```
+
+## Configuration
+
+`IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
+
+| Description                                                       | Environment variable                  | Default              | Required |
+| ----------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
+| IntegreSQL: listen address (defaults to all if empty)             | `INTEGRESQL_ADDRESS`                  | `""`                 |          |
+| IntegreSQL: port                                                  | `INTEGRESQL_PORT`                     | `5000`               |          |
+| PostgreSQL: host                                                  | `INTEGRESQL_PGHOST`, `PGHOST`         | `"127.0.0.1"`        | Yes      |
+| PostgreSQL: port                                                  | `INTEGRESQL_PGPORT`, `PGPORT`         | `5432`               |          |
+| PostgreSQL: username                                              | `INTEGRESQL_PGUSER`, `PGUSER`, `USER` | `"postgres"`         | Yes      |
+| PostgreSQL: password                                              | `INTEGRESQL_PGPASSWORD`, `PGPASSWORD` | `""`                 | Yes      |
+| PostgreSQL: database for manager                                  | `INTEGRESQL_PGDATABASE`               | `"postgres"`         |          |
+| PostgreSQL: template database to use                              | `INTEGRESQL_ROOT_TEMPLATE`            | `"template0"`        |          |
+| Managed databases: prefix                                         | `INTEGRESQL_DB_PREFIX`                | `"integresql"`       |          |
+| Managed *template* databases: prefix `integresql_template_<HASH>` | `INTEGRESQL_TEMPLATE_DB_PREFIX`       | `"template"`         |          |
+| Managed *test* databases: prefix `integresql_test_<HASH>_<ID>`    | `INTEGRESQL_TEST_DB_PREFIX`           | `"test"`             |          |
+| Managed *test* databases: username                                | `INTEGRESQL_TEST_PGUSER`              | PostgreSQL: username |          |
+| Managed *test* databases: password                                | `INTEGRESQL_TEST_PGPASSWORD`          | PostgreSQL: password |          |
+| Managed *test* databases: minimal test pool size                  | `INTEGRESQL_TEST_INITIAL_POOL_SIZE`   | `10`                 |          |
+| Managed *test* databases: maximal test pool size                  | `INTEGRESQL_TEST_MAX_POOL_SIZE`       | `500`                |          |
+
+
+## Integrate
+
+IntegreSQL is a RESTful JSON API distributed as Docker image or go cli. It's language agnostic and manages multiple [PostgreSQL templates](https://supabase.io/blog/2020/07/09/postgresql-templates/) and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+
+You will typically want to integrate by a client lib (see below), but you can also integrate by RESTful JSON calls directly. The flow is introducd below. 
+
+### Integrate by RESTful JSON calls
+
+You development/testing flow should look like this:
+
+* **Start IntegreSQL** and leave it running **in the background** (your PostgreSQL template and test database pool will always be warm)
+* ...
+* You trigger your test command. 1..n test runners/processes start in parallel
+* **Once** per test runner/process:
+  * Get migrations/fixtures files `hash` over all related database files
+  * `InitializeTemplate: POST /templates`: attempt to create a new PostgreSQL template database identifying though the above hash `payload: {"hash": "string"}`
+    * `StatusOK: 200` 
+      * Truncate
+      * Apply all migrations
+      * Seed all fixtures
+      * `FinalizeTemplate: PUT /api/v1/templates/:hash` 
+      * If you encountered any template setup errors call `DiscardTemplate: DELETE /api/v1/templates/:hash`
+    * `StatusLocked: 423`
+      * Some other process has already recreated a PostgreSQL template database for this `hash` (or is currently doing it), you can just consider the template ready at this point.
+    * `StatusServiceUnavailable: 503`
+      * Typically happens if IntegreSQL cannot communicate with PostgreSQL, fail the test runner process
+* **Before each** test `GetTestDatabase: GET /api/v1/templates/:hash/tests`
+  * Blocks until the template database is finalized (via `FinalizeTemplate`)
+  * `StatusOK: 200`
+    * You get a fully isolated PostgreSQL database from our already migrated/seeded template database to use within your test
+  * `StatusNotFound: 404`
+    * Well, seems like someone forgot to call `InitializeTemplate` or it errored out.
+  * `StatusGone: 410`
+    * There was an error during test setup with our fixtures, someone called `DiscardTemplate`, thus this template cannot be used.
+  * `StatusServiceUnavailable: 503`
+    * Well, typically a PostgreSQL connectivity problem
+* Utilizing the isolated PostgreSQL test database received from IntegreSQL for each (parallel) test:
+  * **Run your test code**
+* **After each** test **optional**:
+  * `RecreateTestDatabase: POST /api/v1/templates/:hash/tests/:id/recreate`
+    * Recreates the test DB according to the template and returns it back to the pool.
+    * **This is optional!** If you don't call this endpoint, the test database will be recreated in a FIFO manner (first in, first out) as soon as possible.
+    * This is useful if you have parallel testing with a mix of very long and super short tests. Our auto–FIFO recreation handling might block there.
+  * `ReturnTestDatabase: POST /api/v1/templates/:hash/tests/:id/unlock` (previously and soft-deprecated `DELETE /api/v1/templates/:hash/tests/:id`)
+    * Returns the given test DB directly to the pool, without cleaning (recreating it).
+    * **This is optional!** If you don't call this endpoints, the test database will be recreated in a FIFO manner (first in, first out) as soon as possible, even though it actually had no changes.
+    * This is useful if you are sure, you did not do any changes to the database and thus want to skip the recreation process by returning it to the pool directly.
+
+* 1..n test runners end
+* ...
+* Subsequent 1..n test runners start/end in parallel and reuse the above logic
+
+A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
+
+### Integrate by client lib
+
+The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
+
+* Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
+* Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
+* .NET: [IntegreSQL.EF](https://github.com/mcctomsk/IntegreSql.EF) by [Artur Drobinskiy - @Shaddix](https://github.com/Shaddix)
+* JavaScript/TypeScript: [@devoxa/integresql-client](https://github.com/devoxa/integresql-client) by [Devoxa - @devoxa](https://github.com/devoxa)
+* ... *Add your link here and make a PR*
+
+#### Demo
+
+If you want to take a look on how we integrate IntegreSQL - 🤭 - please just try our [go-starter](https://github.com/allaboutapps/go-starter) project or take a look at our [test_database setup code](https://github.com/allaboutapps/go-starter/blob/master/internal/test/test_database.go). 
 
 ## Background
 
@@ -370,43 +420,86 @@ We realized that having the above pool logic directly within the test runner is 
 
 As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize this testing strategy with PostgreSQL.
 
-IntegreSQL is a RESTful JSON API distributed as Docker image or go cli. It's language agnostic and manages multiple [PostgreSQL templates](https://supabase.io/blog/2020/07/09/postgresql-templates/) and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+This is how `IntegreSQL` was born.
 
-Our flow now finally changed to this:
+## Benchmarks
 
-* **Start IntegreSQL** and leave it running **in the background** (your PostgreSQL template and test database pool will always be warm)
-* ...
-* 1..n test runners start in parallel
-* Once per test runner process
-  * Get migrations/fixtures files `hash` over all related database files
-  * `InitializeTemplate: POST /templates`: attempt to create a new PostgreSQL template database identifying though the above hash `payload: {"hash": "string"}`
-    * `StatusOK: 200` 
-      * Truncate
-      * Apply all migrations
-      * Seed all fixtures
-      * `FinalizeTemplate: PUT /templates/{hash}` 
-      * If you encountered any template setup errors call `DiscardTemplate: DELETE /templates/{hash}`
-    * `StatusLocked: 423`
-      * Some other process has already recreated a PostgreSQL template database for this `hash` (or is currently doing it), you can just consider the template ready at this point.
-    * `StatusServiceUnavailable: 503`
-      * Typically happens if IntegreSQL cannot communicate with PostgreSQL, fail the test runner process
-* **Before each** test `GetTestDatabase: GET /templates/{hash}/tests`
-  * Blocks until the template database is finalized (via `FinalizeTemplate`)
-  * `StatusOK: 200`
-    * You get a fully isolated PostgreSQL database from our already migrated/seeded template database to use within your test
-  * `StatusNotFound: 404`
-    * Well, seems like someone forgot to call `InitializeTemplate` or it errored out.
-  * `StatusGone: 410`
-    * There was an error during test setup with our fixtures, someone called `DiscardTemplate`, thus this template cannot be used.
-  * `StatusServiceUnavailable: 503`
-    * Well, typically a PostgreSQL connectivity problem
-* Utilizing the isolated PostgreSQL test database received from IntegreSQL for each (parallel) test:
-  * **Run your test code**
-* **After each** test optional: `ReturnTestDatabase: DELETE /templates/{hash}/tests/{test-database-id}`
-  * Marks the test database that it can be wiped early on pool limit overflow (or reused if `true` is submitted)
-* 1..n test runners end
-* ...
-* Subsequent 1..n test runners start/end in parallel and reuse the above logic
+### Benchmark v1.1.0 vs v1.0.0
+
+We focued on improving the pool manager performance in v1.1.0, especially when it comes to locking and thus request latency.
+
+![benchmark comparison v1.1.0](docs/benchmark_v1_1_0.png)
+
+The main goal was to bring IntegreSQL's performance on par with our previous native Node.js implementation, which we also benchmarked:
+
+```bash
+
+# Previous Node.js implementation 
+--- -----------------<storageHelper strategy report>------------------ ---
+    replicas switched:             563    avg=14ms min=6ms max=316ms
+    replicas awaited:              1      prebuffer=8 avg=301ms max=301ms
+    background replicas:           571    avg=-ms min=-ms max=1180ms
+    - warm up:                     32%    4041ms 
+        * drop/cache check:        4%     561ms 
+        * migrate/cache reuse:     25%    3177ms 
+        * fixtures:                2%     302ms
+        * special:                 0%     0ms
+        * create pool:             0%     1ms
+    - switching:                   67%    8294ms
+        * disconnect:              1%     139ms
+        * switch slave:            4%     591ms
+            - resolve next:        2%     290ms
+            - await next:          2%     301ms
+        * reinitialize:            61%    7563ms
+    strategy related time:                12335ms 
+    vs total executed time:        11%    106184ms
+--- ----------------</ storageHelper strategy report>----------------- ---
+Done in 106.60s.
+
+# IntegreSQL v1.1.0 (next version)
+--- -----------------<integresql strategy report>------------------ ---
+    replicas switched:             563    avg=70ms min=58ms max=603ms
+    replicas awaited:              1      prebuffer=8 avg=72ms max=72ms
+    background replicas:           571    avg=58ms min=49ms max=520ms
+    - warm up:                     9%     4101ms
+        * drop/cache check:        0%     1ms
+        * migrate/cache reuse:     8%     3520ms
+        * fixtures:                0%     296ms
+        * special:                 0%     0ms
+        * create pool:             0%     284ms
+    - switching:                   90%    39865ms
+        * disconnect:              0%     120ms
+        * switch replica:          0%     261ms (563x min=0ms q25=0ms q50=0ms q75=1ms q95=1ms max=72ms)
+            - resolve next:        0%     189ms
+            - await next:          0%     72ms
+        * reinitialize:            89%    39478ms (563x min=58ms q25=66ms q50=68ms q75=71ms q95=80ms max=531ms)
+    strategy related time:                43966ms
+    vs total executed time:        40%    109052ms
+--- ----------------</ integresql strategy report>----------------- ---
+Done in 109.45s.
+
+# IntegreSQL v1.0.0 (previous version)
+--- -----------------<integresql strategy report>------------------ ---
+    replicas switched:             563    avg=131ms min=9ms max=2019ms
+    replicas awaited:              94     prebuffer=8 avg=590ms max=1997ms
+    background replicas:           571    avg=1292ms min=52ms max=3817ms
+    - warm up:                     7%     6144ms
+        * drop/cache check:        0%     0ms
+        * migrate/cache reuse:     4%     3587ms
+        * fixtures:                0%     298ms
+        * special:                 0%     0ms
+        * create pool:             2%     2259ms
+    - switching:                   92%    73837ms
+        * disconnect:              0%     112ms
+        * switch replica:          64%    51552ms (563x min=0ms q25=0ms q50=0ms q75=1ms q95=773ms max=1997ms)
+            - resolve next:        5%    3922ms
+            - await next:          69%    55474ms
+        * reinitialize:            27%    22169ms (563x min=9ms q25=12ms q50=15ms q75=19ms q95=187ms max=1201ms)
+    strategy related time:                79981ms
+    vs total executed time:        51%    153889ms
+--- ----------------</ integresql strategy report>----------------- ---
+Done in 154.29s.
+```
 
 
 ## Contributing
