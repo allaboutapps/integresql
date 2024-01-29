@@ -1,6 +1,6 @@
 # IntegreSQL
 
-`IntegreSQL` manages isolated PostgreSQL databases for your integration tests.
+IntegreSQL manages isolated PostgreSQL databases for your integration tests.
 
 Do your engineers a favour by allowing them to write fast executing, parallel and deterministic integration tests utilizing **real** PostgreSQL test databases. Resemble your live environment in tests as close as possible.   
 
@@ -11,6 +11,8 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
   - [Usage](#usage)
     - [Run using Docker (preferred)](#run-using-docker-preferred)
     - [Run locally (not recommended)](#run-locally-not-recommended)
+    - [Run within your CI/CD](#run-within-your-cicd)
+      - [GitHub Actions](#github-actions)
   - [Configuration](#configuration)
   - [Integrate](#integrate)
     - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
@@ -39,23 +41,23 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
 
 ## Install
 
-A minimal Docker image containing a pre-built `IntegreSQL` executable is available at [Github Packages](https://github.com/allaboutapps/integresql/releases).
+A minimal Docker image containing is published on GitHub Packages. See [GitHub Releases](https://github.com/allaboutapps/integresql/releases).
 
 ```bash
-docker pull ghcr.io/allaboutapps/integresql
+docker pull ghcr.io/allaboutapps/integresql:<TAG>
 ```
 
 ## Usage
 
 ### Run using Docker (preferred)
 
-Simply start the `IntegreSQL` [Docker](https://docs.docker.com/install/) (19.03 or above) container, provide the required environment variables and expose the server port:
+Simply start a [Docker](https://docs.docker.com/install/) (19.03 or above) container, provide the required environment variables and expose the server port:
 
 ```bash
-docker run -d --name integresql -e INTEGRESQL_PORT=5000 -p 5000:5000 allaboutapps/integresql
+docker run -d --name integresql -e INTEGRESQL_PORT=5000 -p 5000:5000 ghcr.io/allaboutapps/integresql:<TAG>
 ```
 
-`IntegreSQL` can also be included in your project via [Docker Compose](https://docs.docker.com/compose/install/) (1.25 or above):
+The container can also be included in your project via [Docker Compose](https://docs.docker.com/compose/install/) (1.25 or above):
 
 ```yaml
 version: "3.4"
@@ -81,7 +83,7 @@ services:
       # [...] additional main service setup
 
   integresql:
-    image: allaboutapps/integresql:1.0.0
+    image: ghcr.io/allaboutapps/integresql:<TAG>
     ports:
       - "5000:5000"
     depends_on:
@@ -121,7 +123,7 @@ You may also refer to our [go-starter `docker-compose.yml`](https://github.com/a
 
 ### Run locally (not recommended)
 
-Installing `IntegreSQL` locally requires a working [Go](https://golang.org/dl/) (1.14 or above) environment. Install the `IntegreSQL` executable to your Go bin folder:
+Installing IntegreSQL locally requires a working [Go](https://golang.org/dl/) (1.14 or above) environment. Install the `integresql` executable to your Go bin folder:
 
 ```bash
 # This installs the latest version of IntegreSQL into your $GOBIN
@@ -131,7 +133,7 @@ go install github.com/allaboutapps/integresql/cmd/server@latest
 mv $GOBIN/server $GOBIN/integresql
 ```
 
-Running the `IntegreSQL` server locally requires configuration via exported environment variables (see below).
+Running the IntegreSQL server locally requires configuration via exported environment variables (see below).
 
 ```bash
 export INTEGRESQL_PORT=5000
@@ -141,9 +143,43 @@ export PGPASSWORD=testpass
 integresql
 ```
 
+### Run within your CI/CD
+
+You'll also want to use integresql within your CI/CD pipeline. We recommend using the Docker image. Simply run it next to the postgres service.
+
+#### GitHub Actions
+
+For a working sample see [allaboutapps/go-starter](https://github.com/allaboutapps/go-starter/blob/master/.github/workflows/build-test.yml). 
+
+```yaml
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:<TAG>
+        env:
+          POSTGRES_DB: "development"
+          POSTGRES_USER: "dbuser"
+          POSTGRES_PASSWORD: "dbpass"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      integresql:
+        image: ghcr.io/allaboutapps/integresql:<TAG>
+        env:
+          PGHOST: "postgres"
+          PGUSER: "dbuser"
+          PGPASSWORD: "dbpass"
+```
+
 ## Configuration
 
-`IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
+IntegreSQL requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
 
 | Description                                                                                          | Environment variable                                | Required | Default                                                   |
 | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------- | -------- | --------------------------------------------------------- |
@@ -445,7 +481,7 @@ We realized that having the above pool logic directly within the test runner is 
 
 As we switched to Go as our primary backend engineering language, we needed to rewrite the above logic anyways and decided to provide a safe and language agnostic way to utilize this testing strategy with PostgreSQL.
 
-This is how `IntegreSQL` was born.
+This is how IntegreSQL was born.
 
 ## Benchmarks
 
@@ -535,14 +571,14 @@ Please make sure to update tests as appropriate.
 
 ### Development setup
 
-`IntegreSQL` requires the following local setup for development:
+IntegreSQL requires the following local setup for development:
 
 - [Docker CE](https://docs.docker.com/install/) (19.03 or above)
 - [Docker Compose](https://docs.docker.com/compose/install/) (1.25 or above)
 
 The project makes use of the [devcontainer functionality](https://code.visualstudio.com/docs/remote/containers) provided by [Visual Studio Code](https://code.visualstudio.com/) so no local installation of a Go compiler is required when using VSCode as an IDE.
 
-Should you prefer to develop `IntegreSQL` without the Docker setup, please ensure a working [Go](https://golang.org/dl/) (1.14 or above) environment has been configured as well as a PostgreSQL instance is available (tested against version 12 or above, but *should* be compatible to lower versions) and the appropriate environment variables have been configured as described in the [Install](#install) section.
+Should you prefer to develop IntegreSQL without the Docker setup, please ensure a working [Go](https://golang.org/dl/) (1.14 or above) environment has been configured as well as a PostgreSQL instance is available (tested against version 12 or above, but *should* be compatible to lower versions) and the appropriate environment variables have been configured as described in the [Install](#install) section.
 
 ### Development quickstart
 
@@ -584,4 +620,4 @@ integresql
 
 ## License
 
-[MIT](LICENSE) © 2020-2024 aaa – all about apps GmbH | Nick Müller | Mario Ranftl and the `IntegreSQL` project contributors
+[MIT](LICENSE) © 2020-2024 aaa – all about apps GmbH | Nick Müller | Mario Ranftl and the IntegreSQL project contributors
