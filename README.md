@@ -143,8 +143,6 @@ integresql
 
 ## Configuration
 
-> TODO ENV VARIABLES!
-
 `IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
 
 | Description                                                                                          | Environment variable                                | Required | Default                                                   |
