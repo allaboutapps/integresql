@@ -37,20 +37,10 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
 
 ## Install
 
-### Install using Docker (preferred)
-
 A minimal Docker image containing a pre-built `IntegreSQL` executable is available at [Github Packages](https://github.com/allaboutapps/integresql/releases).
 
 ```bash
 docker pull ghcr.io/allaboutapps/integresql
-```
-
-### Install locally
-
-Installing `IntegreSQL` locally requires a working [Go](https://golang.org/dl/) (1.14 or above) environment. Install the `IntegreSQL` executable to your Go bin folder:
-
-```bash
-go get github.com/allaboutapps/integresql/cmd/server
 ```
 
 ## Usage
@@ -127,9 +117,19 @@ volumes:
 
 You may also refer to our [go-starter `docker-compose.yml`](https://github.com/allaboutapps/go-starter/blob/master/docker-compose.yml).
 
-### Run locally
+### Run locally (not recommended)
 
-Running the `IntegreSQL` server locally requires configuration via exported environment variables (see below):
+Installing `IntegreSQL` locally requires a working [Go](https://golang.org/dl/) (1.14 or above) environment. Install the `IntegreSQL` executable to your Go bin folder:
+
+```bash
+# This installs the latest version of IntegreSQL into your $GOBIN
+go install github.com/allaboutapps/integresql/cmd/server@latest
+
+# you may want to rename the binary to integresql after installing:
+mv $GOBIN/server $GOBIN/integresql
+```
+
+Running the `IntegreSQL` server locally requires configuration via exported environment variables (see below).
 
 ```bash
 export INTEGRESQL_PORT=5000

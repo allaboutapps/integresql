@@ -45,10 +45,12 @@
   - Going forward, images are built via GitHub Actions and published to GitHub packages.
 - ARM Docker images
   - Arm64 is now supported (Apple Silicon M1/M2/M3), we publish a multi-arch image (`linux/amd64,linux/arm64`).
+  - Closes [#15](https://github.com/allaboutapps/integresql/issues/15)
 - We added the `POST /api/v1/templates/:hash/tests/:id/recreate` endpoint to the API.
   - You can use it to express that you no longer using this database and it can be recreated and returned to the pool.
   - Using this endpoint means you want to break out of our FIFO (first in, first out) recreating queue and get your test-database recreated as soon as possible.
   - Explicitly calling recreate is **optional** of course!
+  - Closes [#2](https://github.com/allaboutapps/integresql/issues/2)
 - Minor: Added woodpecker/drone setup (internal allaboutapps CI/CD)
 
 ### Changed
@@ -60,6 +62,7 @@
   - Closes [#13](https://github.com/allaboutapps/integresql/issues/13)
 - Logging and Debugging Improvements
   - Introduced zerolog for better logging in the pool and manager modules. Debug statements were refined, and unnecessary print debugging was disabled.
+- Changed details around installing locally in README.md (still not recommended, use the Docker image instead), closes [#7](https://github.com/allaboutapps/integresql/issues/7)
 
 ### Environment Variables
 
