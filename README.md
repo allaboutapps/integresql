@@ -4,19 +4,18 @@
 
 Do your engineers a favour by allowing them to write fast executing, parallel and deterministic integration tests utilizing **real** PostgreSQL test databases. Resemble your live environment in tests as close as possible.   
 
-[![](https://img.shields.io/docker/image-size/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![](https://img.shields.io/docker/pulls/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/allaboutapps/integresql)](https://hub.docker.com/r/allaboutapps/integresql) [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
+[![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
 
 - [IntegreSQL](#integresql)
-      - [Integrate by client lib](#integrate-by-client-lib)
-      - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
-      - [Demo](#demo)
   - [Install](#install)
-    - [Install using Docker (preferred)](#install-using-docker-preferred)
-    - [Install locally](#install-locally)
-  - [Configuration](#configuration)
   - [Usage](#usage)
     - [Run using Docker (preferred)](#run-using-docker-preferred)
-    - [Run locally](#run-locally)
+    - [Run locally (not recommended)](#run-locally-not-recommended)
+  - [Configuration](#configuration)
+  - [Integrate](#integrate)
+    - [Integrate by RESTful JSON calls](#integrate-by-restful-json-calls)
+    - [Integrate by client lib](#integrate-by-client-lib)
+      - [Demo](#demo)
   - [Background](#background)
     - [Approach 0: Leaking database mutations for subsequent tests](#approach-0-leaking-database-mutations-for-subsequent-tests)
     - [Approach 1: Isolating by resetting](#approach-1-isolating-by-resetting)
@@ -28,12 +27,15 @@ Do your engineers a favour by allowing them to write fast executing, parallel an
       - [Approach 3c benchmark 1: Baseline](#approach-3c-benchmark-1-baseline)
       - [Approach 3c benchmark 2: Small project](#approach-3c-benchmark-2-small-project)
     - [Final approach: IntegreSQL](#final-approach-integresql)
+  - [Benchmarks](#benchmarks)
+    - [Benchmark v1.1.0 vs v1.0.0](#benchmark-v110-vs-v100)
   - [Contributing](#contributing)
     - [Development setup](#development-setup)
     - [Development quickstart](#development-quickstart)
   - [Maintainers](#maintainers)
-  - [Previous maintainers](#previous-maintainers)
+    - [Previous maintainers](#previous-maintainers)
   - [License](#license)
+
 
 ## Install
 
@@ -141,25 +143,50 @@ integresql
 
 ## Configuration
 
+> TODO ENV VARIABLES!
+
 `IntegreSQL` requires little configuration, all of which has to be provided via environment variables (due to the intended usage in a Docker environment). The following settings are available:
 
-| Description                                                       | Environment variable                  | Default              | Required |
-| ----------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
-| IntegreSQL: listen address (defaults to all if empty)             | `INTEGRESQL_ADDRESS`                  | `""`                 |          |
-| IntegreSQL: port                                                  | `INTEGRESQL_PORT`                     | `5000`               |          |
-| PostgreSQL: host                                                  | `INTEGRESQL_PGHOST`, `PGHOST`         | `"127.0.0.1"`        | Yes      |
-| PostgreSQL: port                                                  | `INTEGRESQL_PGPORT`, `PGPORT`         | `5432`               |          |
-| PostgreSQL: username                                              | `INTEGRESQL_PGUSER`, `PGUSER`, `USER` | `"postgres"`         | Yes      |
-| PostgreSQL: password                                              | `INTEGRESQL_PGPASSWORD`, `PGPASSWORD` | `""`                 | Yes      |
-| PostgreSQL: database for manager                                  | `INTEGRESQL_PGDATABASE`               | `"postgres"`         |          |
-| PostgreSQL: template database to use                              | `INTEGRESQL_ROOT_TEMPLATE`            | `"template0"`        |          |
-| Managed databases: prefix                                         | `INTEGRESQL_DB_PREFIX`                | `"integresql"`       |          |
-| Managed *template* databases: prefix `integresql_template_<HASH>` | `INTEGRESQL_TEMPLATE_DB_PREFIX`       | `"template"`         |          |
-| Managed *test* databases: prefix `integresql_test_<HASH>_<ID>`    | `INTEGRESQL_TEST_DB_PREFIX`           | `"test"`             |          |
-| Managed *test* databases: username                                | `INTEGRESQL_TEST_PGUSER`              | PostgreSQL: username |          |
-| Managed *test* databases: password                                | `INTEGRESQL_TEST_PGPASSWORD`          | PostgreSQL: password |          |
-| Managed *test* databases: minimal test pool size                  | `INTEGRESQL_TEST_INITIAL_POOL_SIZE`   | `10`                 |          |
-| Managed *test* databases: maximal test pool size                  | `INTEGRESQL_TEST_MAX_POOL_SIZE`       | `500`                |          |
+| Description                                                                                          | Environment variable                                | Required | Default                                                   |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------- | -------- | --------------------------------------------------------- |
+| Server listen address (defaults to all if empty)                                                     | `INTEGRESQL_ADDRESS`                                |          | `""`                                                      |
+| Server port                                                                                          | `INTEGRESQL_PORT`                                   |          | `5000`                                                    |
+| PostgreSQL: host                                                                                     | `INTEGRESQL_PGHOST`, `PGHOST`                       | Yes      | `"127.0.0.1"`                                             |
+| PostgreSQL: port                                                                                     | `INTEGRESQL_PGPORT`, `PGPORT`                       |          | `5432`                                                    |
+| PostgreSQL: username                                                                                 | `INTEGRESQL_PGUSER`, `PGUSER`, `USER`               | Yes      | `"postgres"`                                              |
+| PostgreSQL: password                                                                                 | `INTEGRESQL_PGPASSWORD`, `PGPASSWORD`               | Yes      | `""`                                                      |
+| PostgreSQL: database for manager                                                                     | `INTEGRESQL_PGDATABASE`                             |          | `"postgres"`                                              |
+| PostgreSQL: template database to use                                                                 | `INTEGRESQL_ROOT_TEMPLATE`                          |          | `"template0"`                                             |
+| Managed databases: prefix                                                                            | `INTEGRESQL_DB_PREFIX`                              |          | `"integresql"`                                            |
+| Managed *template* databases: prefix `integresql_template_<HASH>`                                    | `INTEGRESQL_TEMPLATE_DB_PREFIX`                     |          | `"template"`                                              |
+| Managed *test* databases: prefix `integresql_test_<HASH>_<ID>`                                       | `INTEGRESQL_TEST_DB_PREFIX`                         |          | `"test"`                                                  |
+| Managed *test* databases: username                                                                   | `INTEGRESQL_TEST_PGUSER`                            |          | PostgreSQL: username                                      |
+| Managed *test* databases: password                                                                   | `INTEGRESQL_TEST_PGPASSWORD`                        |          | PostgreSQL: password                                      |
+| Managed *test* databases: minimal test pool size                                                     | `INTEGRESQL_TEST_INITIAL_POOL_SIZE`                 |          | [`runtime.NumCPU()`](https://pkg.go.dev/runtime#NumCPU)   |
+| Managed *test* databases: maximal test pool size                                                     | `INTEGRESQL_TEST_MAX_POOL_SIZE`                     |          | [`runtime.NumCPU()*4`](https://pkg.go.dev/runtime#NumCPU) |
+| Maximal number of pool tasks running in parallel                                                     | `INTEGRESQL_POOL_MAX_PARALLEL_TASKS`                |          | [`runtime.NumCPU()`](https://pkg.go.dev/runtime#NumCPU)   |
+| Minimal time to wait after a test db recreate has failed                                             | `INTEGRESQL_TEST_DB_RETRY_RECREATE_SLEEP_MIN_MS`    |          | `250`ms                                                   |
+| The maximum possible sleep time between recreation retries                                           | `INTEGRESQL_TEST_DB_RETRY_RECREATE_SLEEP_MAX_MS`    |          | `3000`ms                                                  |
+| Get test-database blocks auto-recreation (FIFO) for this duration                                    | `INTEGRESQL_TEST_DB_MINIMAL_LIFETIME_MS`            |          | `250`ms                                                   |
+| Internal time to wait for a template-database to transition into the 'finalized' state               | `INTEGRESQL_TEMPLATE_FINALIZE_TIMEOUT_MS`           |          | `60000`ms                                                 |
+| Internal time to wait for a ready database                                                           | `INTEGRESQL_TEST_DB_GET_TIMEOUT_MS`                 |          | `60000`ms                                                 |
+| Enables [pprof debug endpoints](https://golang.org/pkg/net/http/pprof/) under `/debug/*`             | `INTEGRESQL_DEBUG_ENDPOINTS`                        |          | `false`                                                   |
+| Enables [echo framework debug mode](https://echo.labstack.com/docs/customization)                    | `INTEGRESQL_ECHO_DEBUG`                             |          | `false`                                                   |
+| [Enables CORS](https://echo.labstack.com/docs/middleware/cors)                                       | `INTEGRESQL_ECHO_ENABLE_CORS_MIDDLEWARE`            |          | `true`                                                    |
+| [Enables logger](https://echo.labstack.com/docs/middleware/logger)                                   | `INTEGRESQL_ECHO_ENABLE_LOGGER_MIDDLEWARE`          |          | `true`                                                    |
+| [Enables recover](https://echo.labstack.com/docs/middleware/recover)                                 | `INTEGRESQL_ECHO_ENABLE_RECOVER_MIDDLEWARE`         |          | `true`                                                    |
+| [Sets request_id to context](https://echo.labstack.com/docs/middleware/request-id)                   | `INTEGRESQL_ECHO_ENABLE_REQUEST_ID_MIDDLEWARE`      |          | `true`                                                    |
+| [Auto-adds trailing slash](https://echo.labstack.com/docs/middleware/trailing-slash)                 | `INTEGRESQL_ECHO_ENABLE_TRAILING_SLASH_MIDDLEWARE`  |          | `true`                                                    |
+| [Enables timeout middleware](https://echo.labstack.com/docs/middleware/timeout)                      | `INTEGRESQL_ECHO_ENABLE_REQUEST_TIMEOUT_MIDDLEWARE` |          | `true`                                                    |
+| Generic timeout handling for most endpoints                                                          | `INTEGRESQL_ECHO_REQUEST_TIMEOUT_MS`                |          | `60000`ms                                                 |
+| Show logs of [severity](https://github.com/rs/zerolog?tab=readme-ov-file#leveled-logging)            | `INTEGRESQL_LOGGER_LEVEL`                           |          | `"info"`                                                  |
+| Request log [severity]([severity](https://github.com/rs/zerolog?tab=readme-ov-file#leveled-logging)) | `INTEGRESQL_LOGGER_REQUEST_LEVEL`                   |          | `"info"`                                                  |
+| Should the request-log include the body?                                                             | `INTEGRESQL_LOGGER_LOG_REQUEST_BODY`                |          | `false`                                                   |
+| Should the request-log include headers?                                                              | `INTEGRESQL_LOGGER_LOG_REQUEST_HEADER`              |          | `false`                                                   |
+| Should the request-log include the query?                                                            | `INTEGRESQL_LOGGER_LOG_REQUEST_QUERY`               |          | `false`                                                   |
+| Should the request-log include the response body?                                                    | `INTEGRESQL_LOGGER_LOG_RESPONSE_BODY`               |          | `false`                                                   |
+| Should the request-log include the response header?                                                  | `INTEGRESQL_LOGGER_LOG_RESPONSE_HEADER`             |          | `false`                                                   |
+| Should the console logger pretty-print the log (instead of json)?                                    | `INTEGRESQL_LOGGER_PRETTY_PRINT_CONSOLE`            |          | `false`                                                   |
 
 
 ## Integrate
