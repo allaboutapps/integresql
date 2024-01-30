@@ -12,6 +12,32 @@ IntegreSQL manages isolated PostgreSQL databases for your integration tests.
 
 Do your engineers a favour by allowing them to write fast executing, parallel and deterministic integration tests utilizing **real** PostgreSQL test databases. Resemble your live environment in tests as close as possible.   
 
+```mermaid
+sequenceDiagram
+    You->>Testrunner: Start tests
+
+    Testrunner->>IntegreSQL: New template database
+    IntegreSQL->>PostgreSQL: 
+    PostgreSQL-->>IntegreSQL: 
+    IntegreSQL-->>Testrunner: 
+
+    Testrunner->>PostgreSQL: Connect to template database, apply all migrations, seed all fixtures, ..., disconnect.
+    PostgreSQL-->>Testrunner: 
+
+    Testrunner->>IntegreSQL: Finalize the template database
+    IntegreSQL-->>Testrunner: 
+  
+    Note over Testrunner,PostgreSQL: Your test runner can now get isolated test databases for this hash from the pool!
+
+    loop Each test
+    Testrunner->>IntegreSQL: Get test database (looks like template database)
+    Testrunner->>PostgreSQL: 
+    Note over Testrunner,PostgreSQL: Run your test code in an isolated test database!
+
+    Testrunner-xPostgreSQL: Disconnect from the test database.
+    end
+```
+
 [![](https://goreportcard.com/badge/github.com/allaboutapps/integresql)](https://goreportcard.com/report/github.com/allaboutapps/integresql) ![](https://github.com/allaboutapps/integresql/workflows/build/badge.svg?branch=master)
 
 - [IntegreSQL](#integresql)
@@ -209,7 +235,7 @@ You will typically want to integrate by a client lib (see below), but you can al
 
 ### Integrate by client lib
 
-The flow above might look intimidating at first glance, but trust us, it's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
+It's simple to integrate especially if there is already an client library available for your specific language. We currently have those:
 
 * Go: [integresql-client-go](https://github.com/allaboutapps/integresql-client-go) by [Nick Müller - @MorpheusXAUT](https://github.com/MorpheusXAUT)
 * Python: [integresql-client-python](https://github.com/msztolcman/integresql-client-python) by [Marcin Sztolcman - @msztolcman](https://github.com/msztolcman)
@@ -221,7 +247,7 @@ The flow above might look intimidating at first glance, but trust us, it's simpl
 
 A really good starting point to write your own integresql-client for a specific language can be found [here (go code)](https://github.com/allaboutapps/integresql-client-go/blob/master/client.go) and [here (godoc)](https://pkg.go.dev/github.com/allaboutapps/integresql-client-go?tab=doc). It's just RESTful JSON after all.
 
-First start IntegreSQL and leave it running in the background (your PostgreSQL template and test database pool will then always be warm). When you trigger your test command (e.g. `make test`), 1..n test runners/processes start in parallel.
+First start IntegreSQL and leave it running in the background (your PostgreSQL template and test database pool will then always be warm). When you trigger your test command (e.g. `make test`), 1..n test runners/processes can start in parallel and get ready and isoloated test database from the pool (after the template database(s) was/were initialized).
 
 #### Once per test runner/process
 
@@ -246,7 +272,7 @@ sequenceDiagram
 
     Note over Testrunner,PostgreSQL: Parse the received database connection payload and connect to the template database.
 
-    Testrunner->>PostgreSQL: Truncate, apply all migrations, seed all fixtures, ..., disconnect.
+    Testrunner->>PostgreSQL: Apply all migrations, seed all fixtures, ..., disconnect.
     PostgreSQL-->>Testrunner: 
 
     Note over Testrunner,IntegreSQL: Finalize the template so it can be used!
@@ -254,7 +280,12 @@ sequenceDiagram
     Testrunner->>IntegreSQL: FinalizeTemplate: PUT /api/v1/templates/:hash
     IntegreSQL-->>Testrunner: StatusOK: 200
 
-    Note over Testrunner,PostgreSQL: You can now get isolated test databases for this hash from the pool! 
+    Note over Testrunner,PostgreSQL: You can now get isolated test databases for this hash from the pool!
+
+    loop Each test
+      Testrunner->>IntegreSQL: GetTestDatabase: GET /api/v1/templates/:hash/tests
+      Testrunner->>PostgreSQL: 
+    end
 ```
 
 ##### Testrunner reuses an existing template database
@@ -271,7 +302,12 @@ sequenceDiagram
 
     Note over Testrunner,IntegreSQL: Some other testrunner / process has already recreated <br/> this PostgreSQL template database identified by this hash<br/> (or is currently doing it), you can just consider<br/> the template ready at this point.
 
-    Note over Testrunner,PostgreSQL: You can now get isolated test databases for this hash from the pool! 
+    Note over Testrunner,PostgreSQL: You can now get isolated test databases for this hash from the pool!
+
+    loop Each test
+      Testrunner->>IntegreSQL: GetTestDatabase: GET /api/v1/templates/:hash/tests
+      Testrunner->>PostgreSQL: 
+    end
 
 ```
 
@@ -300,6 +336,8 @@ sequenceDiagram
 
     Note right of You: ...
 
+    loop Each test
+
     Note right of Testrunner: Before each test, get a new isolated test database<br/> from the pool for the template hash.
 
     Testrunner->>IntegreSQL: GetTestDatabase: GET /api/v1/templates/:hash/tests
@@ -318,7 +356,9 @@ sequenceDiagram
 
     Testrunner-xPostgreSQL: Disconnect from the test database
 
-     Note over Testrunner,PostgreSQL: Your test is finished.
+    Note over Testrunner,PostgreSQL: Your test is finished.
+
+    end
 ```
 
 ##### Optional: Manually unlocking a test database after a readonly test
@@ -333,6 +373,8 @@ sequenceDiagram
 
     Note right of You: ...
 
+    loop Each test
+
     Testrunner->>IntegreSQL: GetTestDatabase: GET /api/v1/templates/:hash/tests
     IntegreSQL-->>Testrunner: StatusOK: 200
 
@@ -346,6 +388,8 @@ sequenceDiagram
 
     Testrunner->>IntegreSQL: ReturnTestDatabase: POST /api/v1/templates/:hash/tests/:id/unlock<br/>(previously and soft-deprecated DELETE /api/v1/templates/:hash/tests/:id) 
     IntegreSQL-->>Testrunner: StatusOK: 200
+
+    end
 ```
 
 ##### Optional: Manually recreating a test database
@@ -358,6 +402,8 @@ sequenceDiagram
 sequenceDiagram
 
     Note right of You: ...
+
+    loop Each test
 
     Testrunner->>IntegreSQL: GetTestDatabase: GET /api/v1/templates/:hash/tests
     IntegreSQL-->>Testrunner: StatusOK: 200
@@ -372,6 +418,8 @@ sequenceDiagram
 
     Testrunner->>IntegreSQL: RecreateTestDatabase: POST /api/v1/templates/:hash/tests/:id/recreate
     IntegreSQL-->>Testrunner: StatusOK: 200
+
+    end
 ```
 
 
