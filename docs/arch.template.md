@@ -14,6 +14,25 @@ Syntax, see https://mermaid.js.org/syntax/entityRelationshipDiagram.html
 
 # IntegreSQL Architecture
 
+## TestDatabase states
+
+The following describes the state and transitions of a TestDatabase.
+
+```mermaid
+stateDiagram-v2
+
+    HashPool --> TestDatabase: Task EXTEND
+
+    state TestDatabase {
+        [*] --> ready: init
+        ready --> dirty: GetTestDatabase()
+        dirty --> ready: ReturnTestDatabase()
+        dirty --> recreating: RecreateTestDatabase()\nTask CLEAN_DIRTY
+        recreating --> ready: generation++
+        recreating --> recreating: retry (still in use)
+    }
+```
+
 ## Pool structure
 
 The following describes the relationship between the components of IntegreSQL.
@@ -50,21 +69,3 @@ erDiagram
     TemplateDatabase o|--|| Database : "is"
 ```
 
-## TestDatabase states
-
-The following describes the state and transitions of a TestDatabase.
-
-```mermaid
-stateDiagram-v2
-
-    HashPool --> TestDatabase: Task EXTEND
-
-    state TestDatabase {
-        [*] --> ready: init
-        ready --> dirty: GetTestDatabase()
-        dirty --> ready: ReturnTestDatabase()
-        dirty --> recreating: RecreateTestDatabase()\nTask CLEAN_DIRTY
-        recreating --> ready: generation++
-        recreating --> recreating: retry (still in use)
-    }
-```
