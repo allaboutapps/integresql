@@ -90,13 +90,16 @@ sequenceDiagram
 
 ## Install
 
-A minimal Docker image containing is published on GitHub Packages. See [GitHub Releases](https://github.com/allaboutapps/integresql/releases).
+A minimal Docker image is published on GitHub Packages. See [GitHub Releases](https://github.com/allaboutapps/integresql/releases).
 
 ```bash
 docker pull ghcr.io/allaboutapps/integresql:<TAG>
 ```
 
 ## Usage
+
+IntegreSQL is a RESTful JSON API distributed as Docker image and go cli. It's language agnostic and manages multiple [PostgreSQL templates](https://supabase.io/blog/2020/07/09/postgresql-templates/) and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
+
 
 ### Run using Docker (preferred)
 
@@ -228,8 +231,6 @@ jobs:
 
 
 ## Integrate
-
-IntegreSQL is a RESTful JSON API distributed as Docker image and go cli. It's language agnostic and manages multiple [PostgreSQL templates](https://supabase.io/blog/2020/07/09/postgresql-templates/) and their separate pool of test databases for your tests. It keeps the pool of test databases warm (as it's running in the background) and is fit for parallel test execution with multiple test runners / processes.
 
 You will typically want to integrate by a client lib (see below), but you can also integrate by RESTful JSON calls directly. The flow is illustrated in the follow up section. 
 
