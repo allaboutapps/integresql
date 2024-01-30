@@ -9,7 +9,8 @@ import (
 
 func deleteResetAllTemplates(s *api.Server) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := s.Manager.ResetAllTracking(); err != nil {
+		ctx := c.Request().Context()
+		if err := s.Manager.ResetAllTracking(ctx); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 

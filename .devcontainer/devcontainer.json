@@ -14,94 +14,88 @@
 	// The optional 'workspaceFolder' property is the path VS Code should open by default when
 	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
 	"workspaceFolder": "/app",
-	// Set *default* container specific settings.json values on container create.
-	"settings": {
-		"terminal.integrated.shell.linux": null,
-		// https://github.com/golang/tools/blob/master/gopls/doc/vscode.md#vscode 
-		"go.useLanguageServer": true,
-		"[go]": {
-			"editor.formatOnSave": true,
-			"editor.codeActionsOnSave": {
-				"source.organizeImports": true,
+	// All containers should stop if we close / reload the VSCode window.
+	"shutdownAction": "stopCompose",
+	"customizations": {
+		"vscode": {
+			// Set *default* container specific settings.json values on container create.
+			"settings": {
+				// https://github.com/golang/tools/blob/master/gopls/doc/vscode.md#vscode
+				"go.useLanguageServer": true,
+				"[go]": {
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports": true,
+					},
+					// Optional: Disable snippets, as they conflict with completion ranking.
+					"editor.snippetSuggestions": "none",
+				},
+				"[go.mod]": {
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports": true,
+					},
+				},
+				"[sql]": {
+					"editor.formatOnSave": true
+				},
+				"gopls": {
+					// Add parameter placeholders when completing a function.
+					"usePlaceholders": true,
+					// If true, enable additional analyses with staticcheck.
+					// Warning: This will significantly increase memory usage.
+					// DISABLED, done via
+					"staticcheck": false,
+				},
+				// https://code.visualstudio.com/docs/languages/go#_intellisense
+				"go.autocompleteUnimportedPackages": true,
+				// https://github.com/golangci/golangci-lint#editor-integration
+				"go.lintTool": "golangci-lint",
+				"go.lintFlags": [
+					"--fast",
+					"--timeout",
+					"5m"
+				],
+				// disable test caching, race and show coverage (in sync with makefile)
+				"go.testFlags": [
+					"-cover",
+					"-race",
+					"-count=1",
+					"-v"
+				],
+				"go.coverMode": "atomic", // atomic is required when utilizing -race
+				"go.delveConfig": {
+					"dlvLoadConfig": {
+						// increase max length of strings displayed in debugger
+						"maxStringLen": 2048,
+					},
+					"apiVersion": 2,
+				},
+				// ensure that the pgFormatter VSCode extension uses the pgFormatter that comes preinstalled in the Dockerfile
+				"pgFormatter.pgFormatterPath": "/usr/local/bin/pg_format"
 			},
-			// Optional: Disable snippets, as they conflict with completion ranking.
-			"editor.snippetSuggestions": "none",
-		},
-		"[go.mod]": {
-			"editor.formatOnSave": true,
-			"editor.codeActionsOnSave": {
-				"source.organizeImports": true,
-			},
-		},
-		"[sql]": {
-			"editor.formatOnSave": true
-		},
-		"gopls": {
-			// Add parameter placeholders when completing a function.
-			"usePlaceholders": true,
-			// If true, enable additional analyses with staticcheck.
-			// Warning: This will significantly increase memory usage.
-			// DISABLED, done via 
-			"staticcheck": false,
-		},
-		// https://code.visualstudio.com/docs/languages/go#_intellisense
-		"go.autocompleteUnimportedPackages": true,
-		// https://github.com/golangci/golangci-lint#editor-integration
-		"go.lintTool": "golangci-lint",
-		"go.lintFlags": [
-			"--fast"
-		],
-		// disable test caching, race and show coverage (in sync with makefile)
-		"go.testFlags": [
-			"-cover",
-			"-race",
-			"-count=1",
-			"-v"
-		],
-		// "go.lintOnSave": "workspace"
-		// general build settings in sync with our makefile
-		// "go.buildFlags": [
-		// 	"-o",
-		// 	"bin/app"
-		// ]
-		// "sqltools.connections": [
-		// 	{
-		// 		"database": "sample",
-		// 		"dialect": "PostgreSQL",
-		// 		"name": "postgres",
-		// 		"password": "9bed16f749d74a3c8bfbced18a7647f5",
-		// 		"port": 5432,
-		// 		"server": "postgres",
-		// 		"username": "dbuser"
-		// 	}
-		// ],
-		// "sqltools.autoConnectTo": [
-		// 	"postgres"
-		// ],
-		// // only use pg_format to actually format!
-		// "sqltools.formatLanguages": [],
-		// "sqltools.telemetry": false,
-		// "sqltools.autoOpenSessionFiles": false
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				// required:
+				"golang.go",
+				"bradymholt.pgformatter",
+				// optional:
+				"42crunch.vscode-openapi",
+				"heaths.vscode-guid",
+				"bungcip.better-toml",
+				"eamodio.gitlens",
+				"casualjim.gotemplate",
+				"yzhang.markdown-all-in-one"
+			]
+		}
 	},
-	// Add the IDs of extensions you want installed when the container is created.
-	"extensions": [
-		// required:
-		"ms-vscode.go",
-		"bradymholt.pgformatter",
-		// optional:
-		// "766b.go-outliner",
-		"heaths.vscode-guid",
-		"bungcip.better-toml",
-		"eamodio.gitlens",
-		"casualjim.gotemplate"
-		// "mtxr.sqltools",
-	]
 	// Uncomment the next line if you want start specific services in your Docker Compose config.
 	// "runServices": [],
 	// Uncomment the next line if you want to keep your containers running after VS Code shuts down.
 	// "shutdownAction": "none",
 	// Uncomment the next line to run commands after the container is created - for example installing git.
+	"postCreateCommand": "go version",
 	// "postCreateCommand": "apt-get update && apt-get install -y git",
 	// Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
-	// "remoteUser": "vscode"
+	// "remoteUser": ""
 }

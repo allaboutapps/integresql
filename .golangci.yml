@@ -1,0 +1,29 @@
+linters:
+  enable:
+    # https://github.com/golangci/golangci-lint#enabled-by-default-linters
+    # Additional linters you want to activate may be specified here...
+
+    # ---
+    # https://github.com/mgechev/revive
+    # replacement for the now deprecated official golint linter, see https://github.com/golang/go/issues/38968
+    - revive
+
+    # ---
+    # https://github.com/maratori/testpackage
+    # used to enforce blackbox testing
+    - testpackage
+
+    # ---
+    # https://github.com/securego/gosec
+    # inspects source code for security problems by scanning the Go AST.
+    - gosec
+
+    # ---
+    # https://github.com/sivchari/tenv
+    # prefer t.Setenv instead of os.Setenv within test code.
+    - tenv
+
+    # ---
+    # https://github.com/polyfloyd/go-errorlint
+    # ensure we are comparing errors via errors.Is, types/values via errors.As and wrap errors with %w.
+    - errorlint

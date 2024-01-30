@@ -21,3 +21,6 @@ bin
 
 # local go mod cache
 .pkg
+
+# temporary files
+tmp

@@ -1,38 +1,57 @@
-package manager
+package manager_test
 
 import (
 	"context"
 	"database/sql"
 	"errors"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/allaboutapps/integresql/pkg/db"
+	"github.com/allaboutapps/integresql/pkg/manager"
+	"github.com/allaboutapps/integresql/pkg/util"
 )
 
-func testManagerFromEnv() *Manager {
-	conf := DefaultManagerConfigFromEnv()
+func testManagerFromEnv() *manager.Manager {
+	conf := manager.DefaultManagerConfigFromEnv()
 	conf.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
-	return New(conf)
+	m, _ := manager.New(conf)
+	return m
+}
+
+func testManagerFromEnvWithConfig() (*manager.Manager, manager.ManagerConfig) {
+	conf := manager.DefaultManagerConfigFromEnv()
+	conf.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
+	return manager.New(conf)
+}
+
+func testManagerWithConfig(conf manager.ManagerConfig) (*manager.Manager, manager.ManagerConfig) {
+	conf.DatabasePrefix = "pgtestpool" // ensure we don't overlap with other pools running concurrently
+	return manager.New(conf)
 }
 
 // test helpers should never return errors, but are passed the *testing.T instance and fail if needed. It seems to be recommended helper functions are moved to a testing.go file...
 // https://medium.com/@povilasve/go-advanced-tips-tricks-a872503ac859
 // https://about.sourcegraph.com/go/advanced-testing-in-go
 
-func disconnectManager(t *testing.T, m *Manager) {
+func disconnectManager(t *testing.T, m *manager.Manager) {
 
 	t.Helper()
+	timeout := 1 * time.Second
+	ctx := context.Background()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+	_, err := util.WaitWithTimeout(ctx, timeout, func(ctx context.Context) (bool, error) {
+		err := m.Disconnect(ctx, true)
+		return false, err
+	})
 
-	if err := m.Disconnect(ctx, true); err != nil {
-		t.Logf("received error while disconnecting manager: %v", err)
+	if err != nil {
+		t.Errorf("received error while disconnecting manager: %v", err)
 	}
+
 }
 
-func initTemplateDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
-	defer wg.Done()
+func initTemplateDB(_ context.Context, errs chan<- error, m *manager.Manager) {
 
 	template, err := m.InitializeTemplateDatabase(context.Background(), "hashinghash")
 	if err != nil {
@@ -40,15 +59,15 @@ func initTemplateDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
 		return
 	}
 
-	if template.Ready() {
-		errs <- errors.New("template database is marked as ready")
+	if template.TemplateHash != "hashinghash" {
+		errs <- errors.New("template database is invalid")
 		return
 	}
 
 	errs <- nil
 }
 
-func populateTemplateDB(t *testing.T, template *TemplateDatabase) {
+func populateTemplateDB(t *testing.T, template db.TemplateDatabase) {
 	t.Helper()
 
 	db, err := sql.Open("postgres", template.Config.ConnectionString())
@@ -106,7 +125,7 @@ func populateTemplateDB(t *testing.T, template *TemplateDatabase) {
 	}
 }
 
-func verifyTestDB(t *testing.T, test *TestDatabase) {
+func verifyTestDB(t *testing.T, test db.TestDatabase) {
 	t.Helper()
 
 	db, err := sql.Open("postgres", test.Config.ConnectionString())
@@ -140,22 +159,8 @@ func verifyTestDB(t *testing.T, test *TestDatabase) {
 	}
 }
 
-func getTestDB(wg *sync.WaitGroup, errs chan<- error, m *Manager) {
-	defer wg.Done()
+func getTestDB(_ context.Context, errs chan<- error, m *manager.Manager) {
 
-	db, err := m.GetTestDatabase(context.Background(), "hashinghash")
-	if err != nil {
-		errs <- err
-		return
-	}
-
-	if !db.Ready() {
-		errs <- errors.New("test database is marked as not ready")
-		return
-	}
-	if !db.Dirty() {
-		errs <- errors.New("test database is not marked as dirty")
-	}
-
-	errs <- nil
+	_, err := m.GetTestDatabase(context.Background(), "hashinghash")
+	errs <- err
 }

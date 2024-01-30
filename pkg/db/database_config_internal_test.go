@@ -1,4 +1,4 @@
-package manager
+package db
 
 import (
 	"encoding/json"
