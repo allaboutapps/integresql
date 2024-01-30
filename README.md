@@ -231,7 +231,7 @@ You will typically want to integrate by a client lib (see below), but you can al
 
 ### Integrate by RESTful JSON calls
 
-You development/testing flow should look like this:
+Your development/testing flow should look like this:
 
 * **Start IntegreSQL** and leave it running **in the background** (your PostgreSQL template and test database pool will always be warm)
 * ...
