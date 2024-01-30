@@ -238,7 +238,7 @@ You development/testing flow should look like this:
 * You trigger your test command. 1..n test runners/processes start in parallel
 * **Once** per test runner/process:
   * Get migrations/fixtures files `hash` over all related database files
-  * `InitializeTemplate: POST /templates`: attempt to create a new PostgreSQL template database identifying though the above hash `payload: {"hash": "string"}`
+  * `InitializeTemplate: POST /api/v1/templates`: attempt to create a new PostgreSQL template database identified by the above hash `payload: {"hash": "string"}`
     * `StatusOK: 200` 
       * Truncate
       * Apply all migrations
@@ -417,7 +417,7 @@ This is actually the (simplified) strategy, that we have used in [allaboutapps-b
 
 Here's a quick benchmark of how this strategy typically performed back then:
 
-```
+```bash
 --- ----------------<storageHelper strategy report>---------------- ---
     replicas switched:          50     avg=11ms min=1ms max=445ms
     replicas awaited:           1      prebuffer=8 avg=436ms max=436ms
@@ -449,7 +449,7 @@ The cool thing about having a warm pool of replicas setup in the background, is 
 
 Let's look at a sightly bigger testsuite and see how this approach may possibly scale:
 
-```
+```bash
 --- -----------------<storageHelper strategy report>------------------ ---
     replicas switched:             280    avg=26ms min=11ms max=447ms
     replicas awaited:              1      prebuffer=8 avg=417ms max=417ms
