@@ -63,6 +63,8 @@
 - Logging and Debugging Improvements
   - Introduced zerolog for better logging in the pool and manager modules. Debug statements were refined, and unnecessary print debugging was disabled.
 - Changed details around installing locally in README.md (still not recommended, use the Docker image instead), closes [#7](https://github.com/allaboutapps/integresql/issues/7)
+- Fix documentation / READMEs, especially provide integration diagrams and details on the project architecture
+  - Closes [#5](https://github.com/allaboutapps/integresql/issues/5)
 
 ### Environment Variables
 
